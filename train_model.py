@@ -28,7 +28,10 @@ X_train_vectorized = vectorizer.fit_transform(X_train)
 X_test_vectorized = vectorizer.transform(X_test)
 
 # Train model
-model = LogisticRegression(max_iter=1000)
+model = LogisticRegression(
+    max_iter=1000,
+    class_weight='balanced'
+)
 
 model.fit(X_train_vectorized, y_train)
 
@@ -48,3 +51,5 @@ with open("vectorizer.pkl", "wb") as file:
     pickle.dump(vectorizer, file)
 
 print("Model trained successfully!")
+
+print(df["label"].value_counts())
