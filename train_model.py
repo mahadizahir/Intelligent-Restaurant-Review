@@ -51,5 +51,3 @@ with open("vectorizer.pkl", "wb") as file:
     pickle.dump(vectorizer, file)
 
 print("Model trained successfully!")
-
-print(df["label"].value_counts())
