@@ -1,0 +1,844 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Restaurant Owner Review System | Premium Analytics & Insights</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            color: #f1f5f9;
+            padding: 2rem;
+        }
+
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+
+        /* Header */
+        .header {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            background: linear-gradient(to right, #facc15, #ef4444);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+        }
+
+        /* Premium Banner */
+        .premium-banner {
+            background: linear-gradient(135deg, #facc15, #f59e0b);
+            color: #0f172a;
+            padding: 1rem;
+            border-radius: 16px;
+            text-align: center;
+            margin-bottom: 2rem;
+            font-weight: bold;
+        }
+
+        /* Three Column Layout */
+        .three-columns {
+            display: grid;
+            grid-template-columns: 1fr 1.2fr 0.8fr;
+            gap: 1.5rem;
+        }
+
+        /* Cards */
+        .card {
+            background: #1e293b;
+            border-radius: 20px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+            border: 1px solid #334155;
+        }
+
+        .card h3 {
+            color: #facc15;
+            margin-bottom: 1rem;
+            font-size: 1.3rem;
+        }
+
+        .card h4 {
+            color: #94a3b8;
+            margin-bottom: 0.75rem;
+            font-size: 1rem;
+        }
+
+        /* Form Elements */
+        input, select, textarea {
+            width: 100%;
+            padding: 0.75rem;
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 12px;
+            color: white;
+            margin-bottom: 1rem;
+            font-size: 1rem;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 0.5rem;
+            color: #94a3b8;
+            font-weight: 500;
+        }
+
+        /* Star Rating */
+        .star-rating {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .star {
+            font-size: 2rem;
+            cursor: pointer;
+            color: #475569;
+            transition: 0.2s;
+        }
+
+        .star.active {
+            color: #facc15;
+        }
+
+        .star:hover {
+            transform: scale(1.1);
+        }
+
+        /* Buttons */
+        .btn-primary {
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 0.75rem 1.5rem;
+            border-radius: 12px;
+            cursor: pointer;
+            font-weight: bold;
+            width: 100%;
+            margin-top: 0.5rem;
+        }
+
+        .btn-primary:hover {
+            background: #2563eb;
+        }
+
+        .btn-premium {
+            background: #facc15;
+            color: #0f172a;
+            border: none;
+            padding: 0.75rem 1.5rem;
+            border-radius: 12px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        .btn-premium:hover {
+            background: #eab308;
+        }
+
+        /* Reviews List */
+        .review-item {
+            background: #0f172a;
+            padding: 1rem;
+            border-radius: 12px;
+            margin-bottom: 0.75rem;
+            border-left: 4px solid #facc15;
+        }
+
+        .review-stars {
+            color: #facc15;
+            margin: 0.5rem 0;
+        }
+
+        /* Analytics Dashboard */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .stat-card {
+            background: #0f172a;
+            padding: 1rem;
+            border-radius: 12px;
+            text-align: center;
+        }
+
+        .stat-number {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #facc15;
+        }
+
+        /* Insight Cards */
+        .insight-card {
+            background: #0f172a;
+            padding: 1rem;
+            border-radius: 12px;
+            margin-bottom: 1rem;
+            border-left: 3px solid;
+        }
+
+        .insight-positive {
+            border-left-color: #10b981;
+        }
+
+        .insight-warning {
+            border-left-color: #f59e0b;
+        }
+
+        .insight-negative {
+            border-left-color: #ef4444;
+        }
+
+        .keyword-badge {
+            display: inline-block;
+            background: #334155;
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            margin: 0.25rem;
+        }
+
+        /* Notification */
+        .notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: #10b981;
+            color: white;
+            padding: 1rem;
+            border-radius: 12px;
+            animation: slideIn 0.3s ease;
+            z-index: 1000;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        /* QR Modal */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.8);
+            justify-content: center;
+            align-items: center;
+            z-index: 2000;
+        }
+
+        .modal-content {
+            background: #1e293b;
+            padding: 2rem;
+            border-radius: 20px;
+            text-align: center;
+            max-width: 400px;
+        }
+
+        .qrcode {
+            background: white;
+            padding: 1rem;
+            border-radius: 12px;
+            margin: 1rem 0;
+        }
+
+        /* Premium Features */
+        .premium-feature {
+            border: 1px solid #facc15;
+            background: rgba(250, 204, 21, 0.1);
+            padding: 1rem;
+            border-radius: 12px;
+            text-align: center;
+        }
+
+        .price-tag {
+            font-size: 1.8rem;
+            font-weight: bold;
+            color: #facc15;
+        }
+
+        .price-small {
+            font-size: 0.9rem;
+            color: #94a3b8;
+        }
+
+        /* Scrollable */
+        .scrollable {
+            max-height: 500px;
+            overflow-y: auto;
+        }
+
+        /* Responsive */
+        @media (max-width: 1200px) {
+            .three-columns {
+                grid-template-columns: 1fr;
+            }
+            body {
+                padding: 1rem;
+            }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h1>🍽️ Restaurant Owner Review System</h1>
+        <p>Manage reviews, track analytics, and grow your business with AI-powered insights</p>
+    </div>
+
+    <div class="premium-banner" id="premiumBanner">
+        🆓 FREE TIER • Upgrade to Premium for Advanced Analytics & Export Features
+    </div>
+
+    <div class="three-columns">
+        <!-- COLUMN 1: Add Review -->
+        <div>
+            <div class="card">
+                <h3>📝 Add New Review</h3>
+                <label>🏪 Restaurant Name</label>
+                <input type="text" id="restaurantName" placeholder="e.g., Sakura Japanese Restaurant">
+
+                <label>⭐ Star Rating</label>
+                <div class="star-rating" id="starRating">
+                    <span class="star" data-value="1">★</span>
+                    <span class="star" data-value="2">★</span>
+                    <span class="star" data-value="3">★</span>
+                    <span class="star" data-value="4">★</span>
+                    <span class="star" data-value="5">★</span>
+                </div>
+                <input type="hidden" id="ratingValue" value="0">
+
+                <label>📝 Review Text</label>
+                <textarea id="reviewText" rows="3" placeholder="Write your review here..."></textarea>
+
+                <label>📅 Date</label>
+                <input type="date" id="reviewDate">
+
+                <button class="btn-primary" onclick="addReview()">💾 Save Review</button>
+            </div>
+
+            <!-- Premium Payment Section -->
+            <div class="card" id="paymentCard">
+                <h3>💎 Upgrade to Premium</h3>
+                <p style="margin-bottom: 1rem;">Get unlimited analytics, export data, and priority support!</p>
+                
+                <div style="background: #0f172a; padding: 1rem; border-radius: 12px; margin-bottom: 1rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <strong>📅 Monthly Plan</strong>
+                            <div class="price-tag">RM 59.90</div>
+                            <span class="price-small">/ month</span>
+                        </div>
+                        <button class="btn-premium" onclick="showPaymentModal('monthly')">Upgrade Monthly</button>
+                    </div>
+                </div>
+                
+                <div style="background: #0f172a; padding: 1rem; border-radius: 12px; border: 2px solid #facc15;">
+                    <div style="position: relative;">
+                        <span style="position: absolute; top: -20px; right: 0; background: #facc15; color: #0f172a; padding: 4px 12px; border-radius: 20px; font-size: 0.7rem; font-weight: bold;">🔥 SAVE 30%</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <strong>📅 Annual Plan</strong>
+                            <div class="price-tag">RM 499</div>
+                            <span class="price-small">/ year (RM41.58/month equivalent)</span>
+                        </div>
+                        <button class="btn-premium" onclick="showPaymentModal('annual')">Upgrade Annually</button>
+                    </div>
+                </div>
+                
+                <p style="font-size: 0.8rem; margin-top: 1rem; color: #94a3b8;">🔒 Secure payment via Touch 'n Go eWallet</p>
+            </div>
+        </div>
+
+        <!-- COLUMN 2: Analytics & Insights Dashboard -->
+        <div>
+            <!-- Analytics Dashboard -->
+            <div class="card">
+                <h3>📊 Analytics Dashboard</h3>
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-number" id="totalReviews">0</div>
+                        <div>Total Reviews</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number" id="avgRating">0.0</div>
+                        <div>Avg Rating ★</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number" id="totalRestaurants">0</div>
+                        <div>Restaurants</div>
+                    </div>
+                </div>
+                
+                <!-- Sentiment Overview -->
+                <div id="sentimentOverview" style="margin-top: 1rem;">
+                    <h4>📊 Sentiment Overview</h4>
+                    <div id="sentimentBars"></div>
+                </div>
+            </div>
+
+            <!-- Restaurant Owner Insights (Premium) -->
+            <div class="card" id="insightsCard">
+                <h3>🧠 Restaurant Owner Insights</h3>
+                <div id="premiumInsights" class="premium-feature">
+                    🔒 Premium feature: AI-powered business insights
+                </div>
+            </div>
+        </div>
+
+        <!-- COLUMN 3: Recent Reviews & Trends -->
+        <div>
+            <!-- Recent Reviews -->
+            <div class="card">
+                <h3>📋 Recent Reviews</h3>
+                <div class="scrollable" id="reviewsList">
+                    <p style="color: #64748b; text-align: center;">No reviews yet. Add your first review!</p>
+                </div>
+                <button class="btn-primary" onclick="exportReviews()" id="exportBtn" style="background: #10b981; margin-top: 1rem;">📥 Export Reviews to CSV</button>
+            </div>
+
+            <!-- Quick Stats -->
+            <div class="card">
+                <h3>⚡ Quick Stats</h3>
+                <div id="quickStats">
+                    <p style="color: #64748b;">Upgrade to Premium for detailed insights</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Payment Modal -->
+<div id="paymentModal" class="modal">
+    <div class="modal-content">
+        <h3>💳 Touch 'n Go eWallet</h3>
+        <p>Scan QR code to pay for Premium</p>
+        <div class="qrcode">
+            <svg width="200" height="200" viewBox="0 0 200 200" style="background: white;">
+                <rect width="200" height="200" fill="white"/>
+                <rect x="20" y="20" width="40" height="40" fill="black"/>
+                <rect x="80" y="20" width="40" height="40" fill="black"/>
+                <rect x="140" y="20" width="40" height="40" fill="black"/>
+                <rect x="20" y="80" width="40" height="40" fill="black"/>
+                <rect x="140" y="80" width="40" height="40" fill="black"/>
+                <rect x="20" y="140" width="40" height="40" fill="black"/>
+                <rect x="80" y="140" width="40" height="40" fill="black"/>
+                <rect x="140" y="140" width="40" height="40" fill="black"/>
+                <rect x="80" y="80" width="40" height="40" fill="white"/>
+            </svg>
+            <p style="color: black; margin-top: 0.5rem;"><strong>Touch 'n Go ID: 601234567890</strong></p>
+            <p style="color: black; font-size: 0.8rem;">Restaurant Review System</p>
+        </div>
+        <p id="paymentAmount" style="font-size: 1.5rem; font-weight: bold; color: #facc15;">RM 59.90</p>
+        <button class="btn-premium" onclick="confirmPayment()">✅ I've Completed Payment</button>
+        <button class="btn-primary" onclick="closePaymentModal()" style="background: #64748b; margin-top: 0.5rem;">Cancel</button>
+    </div>
+</div>
+
+<script>
+    // Data storage
+    let reviews = [];
+    let isPremium = false;
+    let selectedRating = 0;
+    let selectedPlan = 'monthly';
+
+    // Load saved data
+    function loadData() {
+        const saved = localStorage.getItem('restaurantReviews');
+        if (saved) {
+            reviews = JSON.parse(saved);
+        }
+        const premiumStatus = localStorage.getItem('isPremium');
+        if (premiumStatus === 'true') {
+            isPremium = true;
+            updatePremiumUI();
+        }
+        updateAnalytics();
+        displayReviews();
+        updateQuickStats();
+    }
+
+    // Save data
+    function saveData() {
+        localStorage.setItem('restaurantReviews', JSON.stringify(reviews));
+    }
+
+    // Star rating system
+    document.querySelectorAll('.star').forEach(star => {
+        star.addEventListener('click', function() {
+            selectedRating = parseInt(this.dataset.value);
+            document.getElementById('ratingValue').value = selectedRating;
+            document.querySelectorAll('.star').forEach(s => {
+                if (parseInt(s.dataset.value) <= selectedRating) {
+                    s.classList.add('active');
+                } else {
+                    s.classList.remove('active');
+                }
+            });
+        });
+    });
+
+    // Add review
+    function addReview() {
+        const restaurantName = document.getElementById('restaurantName').value;
+        const reviewText = document.getElementById('reviewText').value;
+        const reviewDate = document.getElementById('reviewDate').value;
+        
+        if (!restaurantName || selectedRating === 0 || !reviewText || !reviewDate) {
+            showNotification('Please fill in all fields!', 'error');
+            return;
+        }
+
+        const review = {
+            id: Date.now(),
+            restaurant: restaurantName,
+            rating: selectedRating,
+            text: reviewText,
+            date: reviewDate,
+            timestamp: new Date().toISOString()
+        };
+
+        reviews.unshift(review);
+        saveData();
+        updateAnalytics();
+        displayReviews();
+        updateQuickStats();
+        showNotification('✅ Review saved successfully!', 'success');
+        
+        // Clear form
+        document.getElementById('restaurantName').value = '';
+        document.getElementById('reviewText').value = '';
+        document.getElementById('reviewDate').value = new Date().toISOString().split('T')[0];
+        selectedRating = 0;
+        document.querySelectorAll('.star').forEach(s => s.classList.remove('active'));
+    }
+
+    // Extract keywords from text
+    function extractKeywords(text) {
+        const commonWords = ['the', 'and', 'for', 'was', 'that', 'this', 'with', 'have', 'from', 'were', 'they', 'you', 'she', 'he', 'but', 'not', 'are', 'all', 'can', 'had', 'her', 'his', 'its', 'our', 'their', 'them', 'then', 'than', 'then', 'just', 'but', 'not', 'very'];
+        const words = text.toLowerCase().split(/\s+/);
+        const filtered = words.filter(w => w.length > 3 && !commonWords.includes(w));
+        const freq = {};
+        filtered.forEach(w => freq[w] = (freq[w] || 0) + 1);
+        return Object.entries(freq).sort((a,b) => b[1] - a[1]).slice(0, 8);
+    }
+
+    // Generate AI Insights
+    function generateInsights() {
+        if (reviews.length === 0) return '<p>No data available. Add reviews to see insights.</p>';
+        
+        // Calculate trends
+        const sortedByDate = [...reviews].sort((a,b) => new Date(a.date) - new Date(b.date));
+        const recentAvg = sortedByDate.slice(-5).reduce((sum, r) => sum + r.rating, 0) / Math.min(5, sortedByDate.length);
+        const overallAvg = reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length;
+        
+        // Rating trend
+        const ratingTrend = recentAvg - overallAvg;
+        const trendIcon = ratingTrend > 0.3 ? '📈' : (ratingTrend < -0.3 ? '📉' : '➡️');
+        const trendText = ratingTrend > 0.3 ? 'Improving! Customers are happier.' : (ratingTrend < -0.3 ? 'Declining - Action needed!' : 'Stable');
+        const trendColor = ratingTrend > 0.3 ? '#10b981' : (ratingTrend < -0.3 ? '#ef4444' : '#facc15');
+        
+        // Find best and worst rated items
+        const restaurantRatings = {};
+        reviews.forEach(r => {
+            if (!restaurantRatings[r.restaurant]) {
+                restaurantRatings[r.restaurant] = { total: 0, count: 0 };
+            }
+            restaurantRatings[r.restaurant].total += r.rating;
+            restaurantRatings[r.restaurant].count++;
+        });
+        
+        const ratingsList = Object.entries(restaurantRatings).map(([name, data]) => ({
+            name,
+            avg: data.total / data.count,
+            count: data.count
+        }));
+        
+        const best = ratingsList.sort((a,b) => b.avg - a.avg)[0];
+        const worst = ratingsList.sort((a,b) => a.avg - b.avg)[0];
+        
+        // Find peak review days
+        const dayRatings = {};
+        reviews.forEach(r => {
+            const day = new Date(r.date).toLocaleDateString('en', { weekday: 'long' });
+            if (!dayRatings[day]) {
+                dayRatings[day] = { total: 0, count: 0 };
+            }
+            dayRatings[day].total += r.rating;
+            dayRatings[day].count++;
+        });
+        
+        const bestDay = Object.entries(dayRatings).sort((a,b) => (b[1].total/b[1].count) - (a[1].total/a[1].count))[0];
+        
+        // Extract keywords from all reviews
+        const allText = reviews.map(r => r.text).join(' ');
+        const keywords = extractKeywords(allText);
+        
+        // Generate recommendations
+        let recommendations = [];
+        if (ratingTrend < -0.3) {
+            recommendations.push('⚠️ Customer satisfaction is declining. Consider staff training or menu improvements.');
+        }
+        
+        const negativeReviews = reviews.filter(r => r.rating <= 2);
+        if (negativeReviews.length > reviews.length * 0.3) {
+            recommendations.push('🔴 High percentage of negative reviews. Urgent action recommended!');
+        }
+        
+        if (keywords.some(([word]) => ['slow', 'wait', 'cold', 'bad', 'terrible'].includes(word))) {
+            recommendations.push('⏰ Multiple complaints about service speed. Review your operations.');
+        }
+        
+        if (keywords.some(([word]) => ['expensive', 'price', 'cost'].includes(word))) {
+            recommendations.push('💰 Customers mentioning pricing. Consider value-added promotions.');
+        }
+        
+        if (recommendations.length === 0) {
+            recommendations.push('✅ Keep up the good work! Maintain your quality and service standards.');
+        }
+        
+        return `
+            <div class="insight-card insight-${ratingTrend > 0 ? 'positive' : (ratingTrend < -0.3 ? 'negative' : 'warning')}">
+                <strong>📊 Rating Trend</strong><br>
+                ${trendIcon} Current trend: <span style="color: ${trendColor}">${trendText}</span><br>
+                <small>Last 5 reviews avg: ${recentAvg.toFixed(1)} ★ | Overall: ${overallAvg.toFixed(1)} ★</small>
+            </div>
+            
+            <div class="insight-card insight-positive">
+                <strong>🏆 Top Performer</strong><br>
+                ${best.name} (${best.avg.toFixed(1)} ★ from ${best.count} reviews)
+            </div>
+            
+            ${worst.count > 0 && worst.avg < 3 ? `
+            <div class="insight-card insight-negative">
+                <strong>⚠️ Needs Attention</strong><br>
+                ${worst.name} (${worst.avg.toFixed(1)} ★ from ${worst.count} reviews)
+            </div>
+            ` : ''}
+            
+            <div class="insight-card insight-positive">
+                <strong>📅 Best Day for Customer Satisfaction</strong><br>
+                ${bestDay ? `${bestDay[0]} (${(bestDay[1].total/bestDay[1].count).toFixed(1)} ★ average)` : 'Insufficient data'}
+            </div>
+            
+            <div class="insight-card">
+                <strong>💬 Common Keywords in Reviews</strong><br>
+                ${keywords.map(([word, count]) => `<span class="keyword-badge">${word} (${count})</span>`).join('')}
+            </div>
+            
+            <div class="insight-card insight-warning">
+                <strong>🎯 Actionable Recommendations</strong><br>
+                ${recommendations.map(r => `• ${r}<br>`).join('')}
+            </div>
+            
+            <div class="insight-card">
+                <strong>📈 Growth Opportunity</strong><br>
+                ${reviews.length < 20 ? 'Increase review collection by offering incentives.' : 'Good review volume! Focus on responding to all reviews.'}
+            </div>
+        `;
+    }
+
+    // Update analytics
+    function updateAnalytics() {
+        const totalReviews = reviews.length;
+        const totalRating = reviews.reduce((sum, r) => sum + r.rating, 0);
+        const avgRating = totalReviews > 0 ? (totalRating / totalReviews).toFixed(1) : 0;
+        const uniqueRestaurants = [...new Set(reviews.map(r => r.restaurant))].length;
+        
+        document.getElementById('totalReviews').textContent = totalReviews;
+        document.getElementById('avgRating').textContent = avgRating;
+        document.getElementById('totalRestaurants').textContent = uniqueRestaurants;
+        
+        // Update sentiment bars
+        const positive = reviews.filter(r => r.rating >= 4).length;
+        const neutral = reviews.filter(r => r.rating === 3).length;
+        const negative = reviews.filter(r => r.rating <= 2).length;
+        const total = reviews.length || 1;
+        
+        document.getElementById('sentimentBars').innerHTML = `
+            <div style="margin: 0.5rem 0;">
+                <div>👍 Positive (${positive})</div>
+                <div style="background:#334155; border-radius:10px; overflow:hidden;"><div style="background:#10b981; width:${(positive/total)*100}%; height:20px;"></div></div>
+            </div>
+            <div style="margin: 0.5rem 0;">
+                <div>😐 Neutral (${neutral})</div>
+                <div style="background:#334155; border-radius:10px; overflow:hidden;"><div style="background:#facc15; width:${(neutral/total)*100}%; height:20px;"></div></div>
+            </div>
+            <div style="margin: 0.5rem 0;">
+                <div>👎 Negative (${negative})</div>
+                <div style="background:#334155; border-radius:10px; overflow:hidden;"><div style="background:#ef4444; width:${(negative/total)*100}%; height:20px;"></div></div>
+            </div>
+        `;
+        
+        if (isPremium) {
+            const insightsDiv = document.getElementById('premiumInsights');
+            insightsDiv.innerHTML = generateInsights();
+            insightsDiv.style.border = 'none';
+            insightsDiv.style.background = 'transparent';
+            insightsDiv.style.padding = '0';
+        }
+    }
+
+    // Update quick stats
+    function updateQuickStats() {
+        if (isPremium && reviews.length > 0) {
+            const monthly = {};
+            reviews.forEach(r => {
+                const month = r.date.substring(0,7);
+                monthly[month] = (monthly[month] || 0) + 1;
+            });
+            const monthlyAvg = Object.values(monthly).reduce((a,b) => a+b,0) / Object.keys(monthly).length;
+            
+            const daysSinceLastReview = reviews.length > 0 ? Math.floor((new Date() - new Date(reviews[0].date)) / (1000 * 60 * 60 * 24)) : 0;
+            
+            document.getElementById('quickStats').innerHTML = `
+                <div class="stat-card" style="margin-bottom: 0.5rem;">
+                    <div class="stat-number">${Math.round(monthlyAvg)}</div>
+                    <div>Avg Reviews/Month</div>
+                </div>
+                <div class="stat-card" style="margin-bottom: 0.5rem;">
+                    <div class="stat-number">${Math.round((positiveCount() / reviews.length) * 100)}%</div>
+                    <div>Positive Rate</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number">${daysSinceLastReview}</div>
+                    <div>Days Since Last Review</div>
+                </div>
+            `;
+        } else {
+            document.getElementById('quickStats').innerHTML = '<p style="color: #64748b; text-align: center;">Upgrade to Premium for detailed insights</p>';
+        }
+    }
+    
+    function positiveCount() {
+        return reviews.filter(r => r.rating >= 4).length;
+    }
+
+    // Display reviews
+    function displayReviews() {
+        const container = document.getElementById('reviewsList');
+        if (reviews.length === 0) {
+            container.innerHTML = '<p style="color: #64748b; text-align: center;">No reviews yet. Add your first review!</p>';
+            return;
+        }
+        
+        container.innerHTML = reviews.slice(0, 10).map(review => `
+            <div class="review-item">
+                <strong>🏪 ${review.restaurant}</strong>
+                <div class="review-stars">${'★'.repeat(review.rating)}${'☆'.repeat(5-review.rating)}</div>
+                <p>${review.text.length > 100 ? review.text.substring(0,100) + '...' : review.text}</p>
+                <small>📅 ${review.date}</small>
+            </div>
+        `).join('');
+    }
+
+    // Export reviews
+    function exportReviews() {
+        if (!isPremium) {
+            showNotification('🔒 Premium feature! Upgrade to export reviews.', 'error');
+            return;
+        }
+        
+        if (reviews.length === 0) {
+            showNotification('No reviews to export!', 'error');
+            return;
+        }
+        
+        let csv = "Restaurant Name,Rating,Review Text,Date\n";
+        reviews.forEach(r => {
+            csv += `"${r.restaurant}",${r.rating},"${r.text.replace(/"/g, '""')}",${r.date}\n`;
+        });
+        
+        const blob = new Blob(["\uFEFF" + csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `restaurant_reviews_${new Date().toISOString().split('T')[0]}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+        showNotification('📥 Reviews exported successfully!', 'success');
+    }
+
+    // Payment functions
+    function showPaymentModal(plan) {
+        selectedPlan = plan;
+        const modal = document.getElementById('paymentModal');
+        const amountEl = document.getElementById('paymentAmount');
+        
+        amountEl.innerHTML = plan === 'monthly' ? 'RM 59.90' : 'RM 499';
+        modal.style.display = 'flex';
+    }
+
+    function closePaymentModal() {
+        document.getElementById('paymentModal').style.display = 'none';
+    }
+
+    function confirmPayment() {
+        closePaymentModal();
+        isPremium = true;
+        localStorage.setItem('isPremium', 'true');
+        updatePremiumUI();
+        showNotification(`🎉 Welcome to Premium! ${selectedPlan === 'monthly' ? 'Monthly (RM59.90)' : 'Annual (RM499)'} activated!`, 'success');
+        updateAnalytics();
+        updateQuickStats();
+    }
+
+    function updatePremiumUI() {
+        if (isPremium) {
+            document.getElementById('premiumBanner').innerHTML = '👑 PREMIUM ACTIVE • AI Insights • CSV Export • Priority Support';
+            document.getElementById('premiumBanner').style.background = 'linear-gradient(135deg, #10b981, #059669)';
+            document.getElementById('exportBtn').disabled = false;
+            document.getElementById('exportBtn').style.opacity = '1';
+            document.getElementById('paymentCard').style.opacity = '0.6';
+            document.getElementById('paymentCard').style.pointerEvents = 'none';
+        } else {
+            document.getElementById('exportBtn').disabled = true;
+            document.getElementById('exportBtn').style.opacity = '0.5';
+            document.getElementById('paymentCard').style.opacity = '1';
+            document.getElementById('paymentCard').style.pointerEvents = 'auto';
+        }
+    }
+
+    // Notification system
+    function showNotification(message, type) {
+        const notification = document.createElement('div');
+        notification.className = 'notification';
+        notification.style.background = type === 'error' ? '#ef4444' : '#10b981';
+        notification.textContent = message;
+        document.body.appendChild(notification);
+        setTimeout(() => notification.remove(), 3000);
+    }
+
+    // Initialize
+    loadData();
+    
+    // Set default date
+    document.getElementById('reviewDate').value = new Date().toISOString().split('T')[0];
+</script>
+</body>
+</html> 
