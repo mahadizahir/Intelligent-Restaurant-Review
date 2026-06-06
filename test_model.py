@@ -2,6 +2,7 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
+import joblib
 
 # Load and prepare dataset
 df = pd.read_csv("cleaned_reviews.csv")
@@ -23,6 +24,10 @@ X_train_vectorized = vectorizer.fit_transform(X_train)
 
 model = LogisticRegression(max_iter=1000, class_weight='balanced')
 model.fit(X_train_vectorized, y_train)
+
+# Save model and vectorizer
+joblib.dump(model, "sentiment_model.pkl")
+joblib.dump(vectorizer, "vectorizer.pkl")
 
 # User input
 review = input("Enter your restaurant review: ")
@@ -58,3 +63,13 @@ print("Predicted Sentiment:", prediction)
 print("Confidence:", round(max_probability * 100, 2), "%")
 print("Probabilities:", probabilities)
 print("Source:", source)
+
+# Load saved model and vectorizer
+model = joblib.load("sentiment_model.pkl")
+vectorizer = joblib.load("vectorizer.pkl")
+
+review = "The food was excellent and the service was amazing."
+vec = vectorizer.transform([review])
+print("prediction:", model.predict(vec)[0])
+print("probs:", model.predict_proba(vec)[0])
+print("classes:", model.classes_)

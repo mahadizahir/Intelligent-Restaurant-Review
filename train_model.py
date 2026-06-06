@@ -4,6 +4,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score
+import joblib
 
 # Load cleaned dataset
 df = pd.read_csv("cleaned_reviews.csv")
@@ -46,3 +47,8 @@ accuracy = accuracy_score(y_test, y_pred)
 
 print("Model Accuracy:", accuracy)
 print("Model trained successfully!")
+
+# Save the trained model and vectorizer
+joblib.dump(model, "sentiment_model.pkl")
+joblib.dump(vectorizer, "vectorizer.pkl")
+print("Saved files: sentiment_model.pkl, vectorizer.pkl")
