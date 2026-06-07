@@ -24,7 +24,7 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
     super.dispose();
   }
 
-  void _submitReview() {
+  Future<void> _submitReview() async {
     if (_reviewStars == 0) {
       ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Please select a star rating.')));
@@ -35,20 +35,33 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
           const SnackBar(content: Text('Please write your review.')));
       return;
     }
-    context.read<AppState>().addReview(
-          restaurantId: widget.restaurantId,
-          stars: _reviewStars,
-          text: _reviewController.text,
-        );
-    setState(() {
-      _reviewStars = 0;
-      _reviewController.clear();
-    });
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-          content: Text('Review submitted! Owner can now see it.'),
-          backgroundColor: Colors.green),
-    );
+
+    final messenger = ScaffoldMessenger.of(context);
+
+    try {
+      await context.read<AppState>().addReview(
+            restaurantId: widget.restaurantId,
+            stars: _reviewStars,
+            text: _reviewController.text,
+          );
+      if (!mounted) return;
+      setState(() {
+        _reviewStars = 0;
+        _reviewController.clear();
+      });
+      messenger.showSnackBar(
+        const SnackBar(
+            content: Text('Review submitted! Owner can now see it.'),
+            backgroundColor: Colors.green),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      messenger.showSnackBar(
+        const SnackBar(
+            content: Text('Could not submit review. Please try again.'),
+            backgroundColor: Colors.red),
+      );
+    }
   }
 
   Color _bannerColor() {
@@ -329,8 +342,6 @@ class _ReviewsTab extends StatelessWidget {
 
         // Existing reviews
         ...reviews.map((r) {
-          final isPos = r.sentiment == 'POSITIVE';
-          final isNeg = r.sentiment == 'NEGATIVE';
           return Container(
             margin: const EdgeInsets.fromLTRB(16, 0, 16, 10),
             padding: const EdgeInsets.all(12),
@@ -375,13 +386,9 @@ class _ReviewsTab extends StatelessWidget {
                     borderRadius: BorderRadius.circular(6),
                   ),
                   child: Text(
-                    r.sentiment,
-                    style: TextStyle(
-                      color: isPos
-                          ? AppColors.white
-                          : isNeg
-                              ? Colors.redAccent
-                              : Colors.orangeAccent,
+                    r.sentiment.toUpperCase(),
+                    style: const TextStyle(
+                      color: AppColors.white,
                       fontWeight: FontWeight.bold,
                       fontSize: 10,
                     ),

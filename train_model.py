@@ -3,19 +3,25 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score
+from sklearn.metrics import accuracy_score, classification_report
 import joblib
 
-# Load cleaned dataset
-df = pd.read_csv("cleaned_reviews.csv")
+# Load both datasets
+df1 = pd.read_csv("cleaned_reviews.csv")
+df1 = df1.rename(columns={"review_text": "text"})
+
+df2 = pd.read_csv("restaurantdatasetenglish_clean.csv")
+
+# Combine datasets
+df = pd.concat([df1, df2], ignore_index=True)
 
 # Remove empty rows
-df = df.dropna(subset=["review_text", "label"])
+df = df.dropna(subset=["text", "label"])
 
 df = df[df["label"] != "neutral"]
 
 # Features and labels
-X = df["review_text"]
+X = df["text"]
 y = df["label"]
 
 # Split dataset
@@ -46,7 +52,7 @@ y_pred = model.predict(X_test_vectorized)
 accuracy = accuracy_score(y_test, y_pred)
 
 print("Model Accuracy:", accuracy)
-print("Model trained successfully!")
+
 
 # Save the trained model and vectorizer
 joblib.dump(model, "sentiment_model.pkl")

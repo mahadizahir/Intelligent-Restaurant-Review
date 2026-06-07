@@ -6,6 +6,13 @@ app = Flask(__name__)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
+@app.after_request
+def add_cors_headers(response):
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+    return response
+
 MODEL_PATH = os.path.join(BASE_DIR, "sentiment_model.pkl")
 VECTORIZER_PATH = os.path.join(BASE_DIR, "vectorizer.pkl")
 
@@ -23,20 +30,20 @@ def index():
 def predict_sentiment():
     data = request.get_json()
 
-    if not data or "review" not in data:
-        return jsonify({
-            "error": "Missing 'review' field"
-        }), 400
+    reviews = data["reviews"]
 
-    review = data["review"]
+    results = []
 
-    review_vector = vectorizer.transform([review])
-    prediction = model.predict(review_vector)[0]
+    for review in reviews:
+        review_vector = vectorizer.transform([review])
+        prediction = model.predict(review_vector)[0]
 
-    return jsonify({
-        "review": review,
-        "sentiment": prediction
-    })
+        results.append({
+            "review": review,
+            "sentiment": prediction
+        })
+
+    return jsonify(results)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
