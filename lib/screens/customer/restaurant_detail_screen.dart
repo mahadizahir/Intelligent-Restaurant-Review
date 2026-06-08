@@ -253,9 +253,11 @@ class _MenuTab extends StatelessWidget {
             borderRadius: BorderRadius.circular(12),
             border: Border.all(color: AppColors.lightGrey),
           ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // keep badge aligned to the top-right corner
+
               // ── Food image from bytes ──────────────────────────────────
               BytesImage(
                 bytes: item.imageBytes,
@@ -381,6 +383,7 @@ class _ReviewsTab extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.symmetric(
                       horizontal: 10, vertical: 6),
+                  alignment: Alignment.topRight,
                   decoration: BoxDecoration(
                     color: AppColors.black,
                     borderRadius: BorderRadius.circular(6),

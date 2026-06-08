@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../data/app_state.dart';
@@ -6,6 +7,75 @@ import '../../theme/app_colors.dart';
 import '../../screens/auth/register_screen.dart';
 import '../../screens/profile_screen.dart';
 import '../../widgets/image_helper.dart';
+import '../../widgets/sentiment_wordcloud.dart';
+
+const _sentimentStopWords = {
+  // keep only very common stopwords — allow domain words like 'food',
+  // 'service', 'great' to surface in the cloud.
+  'the', 'and', 'for', 'with', 'that', 'this', 'have', 'from',
+  'they', 'their', 'there', 'very', 'were', 'been', 'what', 'when', 'your',
+  'you', 'but', 'not', 'are', 'was', 'had', 'has', 'our', 'out',
+  'all', 'too', 'its', 'just', 'can', 'will', 'one', 'about', 'some',
+  'more', 'also', 'would', 'could', 'should', 'youre', 'does', 'did',
+  'because', 'after', 'before', 'while'
+};
+
+List<WeightedWord> _buildWordCloud(
+    List<Review> reviews, String sentiment, int limit) {
+  // TF-IDF style weighting over the reviews filtered by `sentiment`.
+  // This gives more 'ML-like' importance than raw counts.
+  final regex = RegExp(r"[a-zA-Z']+");
+  final int N = reviews.length;
+
+  // document frequency across all reviews
+  final Map<String, int> df = {};
+
+  // term counts within the target sentiment class
+  final Map<String, int> tfCounts = {};
+  var totalTermsInClass = 0;
+
+  for (final review in reviews) {
+    final text = review.text.toLowerCase();
+    final seen = <String>{};
+
+    for (final m in regex.allMatches(text)) {
+      final w = (m.group(0) ?? '').trim();
+      if (w.isEmpty || _sentimentStopWords.contains(w) || w.length < 3) continue;
+      seen.add(w);
+    }
+
+    for (final w in seen) {
+      df[w] = (df[w] ?? 0) + 1;
+    }
+
+    if (review.sentiment.trim().toUpperCase() != sentiment) continue;
+
+    for (final m in regex.allMatches(text)) {
+      final w = (m.group(0) ?? '').trim();
+      if (w.isEmpty || _sentimentStopWords.contains(w) || w.length < 3) continue;
+      tfCounts[w] = (tfCounts[w] ?? 0) + 1;
+      totalTermsInClass++;
+    }
+  }
+
+  if (tfCounts.isEmpty) return const [];
+
+  final Map<String, double> scores = {};
+  tfCounts.forEach((w, count) {
+    final tf = totalTermsInClass > 0 ? count / totalTermsInClass : 0.0;
+    final idf = (N > 0) ? math.log((N + 1) / ((df[w] ?? 0) + 1)) : 0.0;
+    scores[w] = tf * idf;
+  });
+
+  final sorted = scores.entries.toList()
+    ..sort((a, b) => b.value.compareTo(a.value));
+
+  final maxScore = sorted.isNotEmpty ? sorted.first.value : 1.0;
+  return sorted.take(limit).map((e) {
+    final normalized = maxScore > 0 ? (e.value / maxScore) : 0.0;
+    return WeightedWord(word: e.key, weight: normalized);
+  }).toList();
+}
 
 class OwnerDashboardScreen extends StatefulWidget {
   const OwnerDashboardScreen({super.key});
@@ -62,8 +132,8 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
               padding: const EdgeInsets.all(20),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
                   // Title row
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -644,9 +714,9 @@ class _AISummaryCard extends StatelessWidget {
       return 'No reviews yet. Share your restaurant with customers to get started!';
     }
     final pos =
-        reviews.where((r) => r.sentiment == 'POSITIVE').length;
+      reviews.where((r) => r.sentiment.trim().toUpperCase() == 'POSITIVE').length;
     final neg =
-        reviews.where((r) => r.sentiment == 'NEGATIVE').length;
+      reviews.where((r) => r.sentiment.trim().toUpperCase() == 'NEGATIVE').length;
     final avg = reviews.map((r) => r.stars).reduce((a, b) => a + b) /
         reviews.length;
     if (pos > neg) {
@@ -761,8 +831,8 @@ class _ReviewsTab extends StatelessWidget {
     }
     return Column(
       children: reviews.reversed.map((r) {
-        final isPos = r.sentiment == 'POSITIVE';
-        final isNeg = r.sentiment == 'NEGATIVE';
+        final isPos = r.sentiment.trim().toUpperCase() == 'POSITIVE';
+        final isNeg = r.sentiment.trim().toUpperCase() == 'NEGATIVE';
         return Container(
           margin: const EdgeInsets.fromLTRB(16, 0, 16, 10),
           padding: const EdgeInsets.all(14),
@@ -801,6 +871,7 @@ class _ReviewsTab extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.symmetric(
                     horizontal: 12, vertical: 8),
+                alignment: Alignment.topRight,
                 decoration: BoxDecoration(
                     color: AppColors.black,
                     borderRadius: BorderRadius.circular(8)),
@@ -958,6 +1029,12 @@ class _AnalyticsTab extends StatelessWidget {
     final maxCount =
         counts.values.reduce((a, b) => a > b ? a : b).toDouble();
 
+    // Calculate sentiment distribution
+    final positiveCount =
+      reviews.where((r) => r.sentiment.trim().toUpperCase() == 'POSITIVE').length;
+    final negativeCount =
+      reviews.where((r) => r.sentiment.trim().toUpperCase() == 'NEGATIVE').length;
+
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16),
       padding: const EdgeInsets.all(16),
@@ -1017,8 +1094,196 @@ class _AnalyticsTab extends StatelessWidget {
                 }).toList(),
               ),
             ),
+          const SizedBox(height: 24),
+          // Sentiment Distribution Section
+          const Text('Sentiment Distribution',
+              style: TextStyle(
+                  fontWeight: FontWeight.bold, fontSize: 14)),
+          const SizedBox(height: 16),
+          if (reviews.isEmpty)
+            const Center(
+                child: Padding(
+              padding: EdgeInsets.all(16),
+              child: Text('No data yet.',
+                  style: TextStyle(color: AppColors.grey)),
+            ))
+          else
+            Column(
+              children: [
+                SizedBox(
+                  height: 300,
+                  child: Center(
+                    child: SizedBox(
+                      width: 220,
+                      height: 220,
+                      child: CustomPaint(
+                        painter: _SentimentPiePainter(
+                          positiveCount: positiveCount,
+                          negativeCount: negativeCount,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(width: 15, height: 15, color: Colors.green),
+                        const SizedBox(width: 8),
+                        const Text('Positive',
+                            style: TextStyle(
+                                fontWeight: FontWeight.bold, fontSize: 13)),
+                      ],
+                    ),
+                    const SizedBox(width: 24),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(width: 15, height: 15, color: Colors.red),
+                        const SizedBox(width: 8),
+                        const Text('Negative',
+                            style: TextStyle(
+                                fontWeight: FontWeight.bold, fontSize: 13)),
+                      ],
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 24),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Sentiment Word Cloud',
+                        style: TextStyle(
+                            fontWeight: FontWeight.bold, fontSize: 14)),
+                    const SizedBox(height: 12),
+                    SentimentWordCloud(
+                      positiveWords:
+                          _buildWordCloud(reviews, 'POSITIVE', 8),
+                      negativeWords:
+                          _buildWordCloud(reviews, 'NEGATIVE', 8),
+                    ),
+                  ],
+                ),
+              ],
+            ),
         ],
       ),
     );
   }
 }
+
+class _SentimentPiePainter extends CustomPainter {
+  final int positiveCount;
+  final int negativeCount;
+
+  _SentimentPiePainter({
+    required this.positiveCount,
+    required this.negativeCount,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = math.min(size.width, size.height) / 2;
+    final total = positiveCount + negativeCount;
+    final paint = Paint()..style = PaintingStyle.fill;
+
+    if (total == 0) {
+      paint.color = AppColors.lightGrey;
+      canvas.drawCircle(center, radius, paint);
+      final textSpan = TextSpan(
+        text: '0%',
+        style: const TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.bold,
+          fontSize: 18,
+        ),
+      );
+      final tp = TextPainter(
+        text: textSpan,
+        textAlign: TextAlign.center,
+        textDirection: TextDirection.ltr,
+      );
+      tp.layout();
+      tp.paint(canvas, Offset(center.dx - tp.width / 2, center.dy - tp.height / 2));
+      return;
+    }
+
+    final positiveAngle = (positiveCount / total) * 2 * math.pi;
+    final negativeAngle = (negativeCount / total) * 2 * math.pi;
+    final startAngle = -math.pi / 2;
+
+    paint.color = Colors.green;
+    canvas.drawArc(
+      Rect.fromCircle(center: center, radius: radius),
+      startAngle,
+      positiveAngle,
+      true,
+      paint,
+    );
+
+    paint.color = Colors.red;
+    canvas.drawArc(
+      Rect.fromCircle(center: center, radius: radius),
+      startAngle + positiveAngle,
+      negativeAngle,
+      true,
+      paint,
+    );
+
+    final positivePct = positiveCount / total * 100;
+    final negativePct = negativeCount / total * 100;
+
+    void drawLabel(double angle, String label) {
+      final labelRadius = radius * 0.55;
+      final offset = Offset(
+        center.dx + labelRadius * math.cos(angle),
+        center.dy + labelRadius * math.sin(angle),
+      );
+      final textSpan = TextSpan(
+        text: label,
+        style: const TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.bold,
+          fontSize: 14,
+        ),
+      );
+      final tp = TextPainter(
+        text: textSpan,
+        textAlign: TextAlign.center,
+        textDirection: TextDirection.ltr,
+      );
+      tp.layout();
+      tp.paint(canvas, Offset(offset.dx - tp.width / 2, offset.dy - tp.height / 2));
+    }
+
+    if (positiveCount > 0) {
+      drawLabel(startAngle + positiveAngle / 2,
+          '${positivePct.toStringAsFixed(1)}%');
+    }
+    if (negativeCount > 0) {
+      drawLabel(startAngle + positiveAngle + negativeAngle / 2,
+          '${negativePct.toStringAsFixed(1)}%');
+    }
+
+    canvas.drawCircle(
+      center,
+      radius,
+      Paint()
+        ..color = AppColors.lightGrey
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _SentimentPiePainter oldDelegate) {
+    return oldDelegate.positiveCount != positiveCount ||
+        oldDelegate.negativeCount != negativeCount;
+  }
+}
+
