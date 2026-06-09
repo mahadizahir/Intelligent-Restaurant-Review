@@ -2,77 +2,125 @@ import 'dart:typed_data';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
+
 import '../../data/app_state.dart';
 import '../../theme/app_colors.dart';
+
 import '../../screens/auth/register_screen.dart';
 import '../../screens/profile_screen.dart';
 import '../../widgets/image_helper.dart';
 import '../../widgets/sentiment_wordcloud.dart';
+import '../../data/app_state.dart';
+
 
 const _sentimentStopWords = {
-  // keep only very common stopwords — allow domain words like 'food',
-  // 'service', 'great' to surface in the cloud.
+  // English common stopwords + explicit low-information terms.
   'the', 'and', 'for', 'with', 'that', 'this', 'have', 'from',
   'they', 'their', 'there', 'very', 'were', 'been', 'what', 'when', 'your',
   'you', 'but', 'not', 'are', 'was', 'had', 'has', 'our', 'out',
   'all', 'too', 'its', 'just', 'can', 'will', 'one', 'about', 'some',
   'more', 'also', 'would', 'could', 'should', 'youre', 'does', 'did',
-  'because', 'after', 'before', 'while'
+  'because', 'after', 'before', 'while',
+  // Malay common stopwords / filler terms
+  'yang', 'dan', 'atau', 'di', 'ke', 'dari', 'pada', 'untuk', 'dengan',
+  'ini', 'itu', 'saya', 'kami', 'anda', 'kita', 'mereka', 'dia',
+  'juga', 'lagi', 'pun', 'telah', 'ada', 'tidak', 'tak', 'sekali',
+  'sangat', 'terlalu',
+  // Domain too-generic terms (requested)
+  'tempat', 'restaurant',
 };
+
+const List<WeightedWord> _fallbackPositiveKeywords = [
+  WeightedWord(word: 'sedap', weight: 1.00),
+  WeightedWord(word: 'fresh', weight: 0.96),
+  WeightedWord(word: 'friendly', weight: 0.92),
+  WeightedWord(word: 'clean', weight: 0.90),
+  WeightedWord(word: 'delicious', weight: 0.88),
+  WeightedWord(word: 'excellent', weight: 0.86),
+  WeightedWord(word: 'tasty', weight: 0.82),
+  WeightedWord(word: 'pleasant', weight: 0.78),
+  WeightedWord(word: 'spacious', weight: 0.75),
+  WeightedWord(word: 'fast', weight: 0.71),
+  WeightedWord(word: 'hot', weight: 0.68),
+  WeightedWord(word: 'value', weight: 0.64),
+];
+
+const List<WeightedWord> _fallbackNegativeKeywords = [
+  WeightedWord(word: 'slow', weight: 1.00),
+  WeightedWord(word: 'dirty', weight: 0.96),
+  WeightedWord(word: 'basi', weight: 0.92),
+  WeightedWord(word: 'expensive', weight: 0.90),
+  WeightedWord(word: 'rude', weight: 0.88),
+  WeightedWord(word: 'terrible', weight: 0.86),
+  WeightedWord(word: 'cold', weight: 0.82),
+  WeightedWord(word: 'crowded', weight: 0.78),
+  WeightedWord(word: 'smelly', weight: 0.75),
+  WeightedWord(word: 'noisy', weight: 0.71),
+  WeightedWord(word: 'late', weight: 0.68),
+  WeightedWord(word: 'wait', weight: 0.64),
+];
+
+Widget _starGlyph(bool filled, {double size = 18, Color? color}) {
+  return Text(
+    filled ? '★' : '☆',
+    style: TextStyle(
+      fontSize: size,
+      color: color ?? (filled ? const Color(0xFFFFC107) : Colors.grey.shade300),
+      fontWeight: FontWeight.w700,
+    ),
+  );
+}
 
 List<WeightedWord> _buildWordCloud(
     List<Review> reviews, String sentiment, int limit) {
-  // TF-IDF style weighting over the reviews filtered by `sentiment`.
-  // This gives more 'ML-like' importance than raw counts.
-  final regex = RegExp(r"[a-zA-Z']+");
-  final int N = reviews.length;
+  // Keyword extraction without another ML model: tokenize + preprocess + count.
+  // Requirements:
+  // - remove punctuation/numbers via token filtering (keep alphabetic tokens only)
+  // - remove English + Malay stopwords and low-information terms
+  // - de-duplicate per review for DF-like weighting (prevents one review spamming a single keyword)
+  // - generate word weights based on frequency (requested)
+  final tokenRegex = RegExp(r"[a-zA-Z]+");
 
-  // document frequency across all reviews
-  final Map<String, int> df = {};
-
-  // term counts within the target sentiment class
-  final Map<String, int> tfCounts = {};
-  var totalTermsInClass = 0;
+  final Map<String, int> freq = {};
+  var totalTokens = 0;
 
   for (final review in reviews) {
+    if (review.sentiment.trim().toLowerCase() != sentiment.trim().toLowerCase()) continue;
+
     final text = review.text.toLowerCase();
-    final seen = <String>{};
+    final tokens = tokenRegex
+        .allMatches(text)
+        .map((m) => (m.group(0) ?? '').trim())
+        .where((w) => w.isNotEmpty)
+        .where((w) => w.length >= 3)
+        .where((w) => !_sentimentStopWords.contains(w))
+        .toList();
 
-    for (final m in regex.allMatches(text)) {
-      final w = (m.group(0) ?? '').trim();
-      if (w.isEmpty || _sentimentStopWords.contains(w) || w.length < 3) continue;
-      seen.add(w);
-    }
-
-    for (final w in seen) {
-      df[w] = (df[w] ?? 0) + 1;
-    }
-
-    if (review.sentiment.trim().toUpperCase() != sentiment) continue;
-
-    for (final m in regex.allMatches(text)) {
-      final w = (m.group(0) ?? '').trim();
-      if (w.isEmpty || _sentimentStopWords.contains(w) || w.length < 3) continue;
-      tfCounts[w] = (tfCounts[w] ?? 0) + 1;
-      totalTermsInClass++;
+    // De-duplicate per review so repeating the same keyword in a single review
+    // doesn't overweight everything.
+    final uniqueTokens = tokens.toSet();
+    for (final w in uniqueTokens) {
+      freq[w] = (freq[w] ?? 0) + 1;
+      totalTokens++;
     }
   }
 
-  if (tfCounts.isEmpty) return const [];
+  if (freq.isEmpty) {
+    return sentiment.toUpperCase() == 'POSITIVE'
+        ? _fallbackPositiveKeywords.take(limit).toList()
+        : _fallbackNegativeKeywords.take(limit).toList();
+  }
 
-  final Map<String, double> scores = {};
-  tfCounts.forEach((w, count) {
-    final tf = totalTermsInClass > 0 ? count / totalTermsInClass : 0.0;
-    final idf = (N > 0) ? math.log((N + 1) / ((df[w] ?? 0) + 1)) : 0.0;
-    scores[w] = tf * idf;
-  });
-
-  final sorted = scores.entries.toList()
+  final sorted = freq.entries.toList()
     ..sort((a, b) => b.value.compareTo(a.value));
 
-  final maxScore = sorted.isNotEmpty ? sorted.first.value : 1.0;
-  return sorted.take(limit).map((e) {
-    final normalized = maxScore > 0 ? (e.value / maxScore) : 0.0;
+  final top = sorted.take(limit).toList();
+  final maxCount = top.isNotEmpty ? top.first.value : 1;
+
+  return top.map((e) {
+    final normalized = maxCount > 0 ? (e.value / maxCount) : 0.0;
     return WeightedWord(word: e.key, weight: normalized);
   }).toList();
 }
@@ -453,8 +501,15 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
                     ),
                     clipBehavior: Clip.hardEdge,
                     child: user?.avatarBytes != null
-                        ? Image.memory(user!.avatarBytes!,
-                            fit: BoxFit.cover)
+                        ? BytesImage(
+                            bytes: user!.avatarBytes,
+                            width: 44,
+                            height: 44,
+                            fit: BoxFit.cover,
+                            borderRadius: BorderRadius.circular(999),
+                            placeholder: const Icon(Icons.storefront,
+                                color: AppColors.headerBlue, size: 24),
+                          )
                         : const Icon(Icons.storefront,
                             color: AppColors.headerBlue,
                             size: 24),
@@ -578,15 +633,18 @@ class _RatingSummaryCard extends StatelessWidget {
                   style: const TextStyle(
                       fontSize: 42, fontWeight: FontWeight.bold)),
               Row(
-                  children: List.generate(
-                5,
-                (i) => Icon(
-                    i < avgRating.round()
-                        ? Icons.star
-                        : Icons.star_border,
-                    color: const Color(0xFFFFC107),
-                    size: 20),
-              )),
+                children: List.generate(
+                  5,
+                  (i) => Padding(
+                    padding: const EdgeInsets.only(right: 2),
+                    child: _starGlyph(
+                      i < avgRating.round(),
+                      size: 18,
+                      color: const Color(0xFFFFC107),
+                    ),
+                  ),
+                ),
+              ),
               const SizedBox(height: 4),
               Text(
                   '$totalRatings ${totalRatings == 1 ? 'rating' : 'ratings'}',
@@ -705,26 +763,443 @@ class _CategoryScoresCard extends StatelessWidget {
   }
 }
 
-class _AISummaryCard extends StatelessWidget {
+class _AISummaryCard extends StatefulWidget {
   final List<Review> reviews;
   const _AISummaryCard({required this.reviews});
 
-  String _summary() {
+  @override
+  State<_AISummaryCard> createState() => _AISummaryCardState();
+}
+
+class _AISummaryCardState extends State<_AISummaryCard> {
+  bool _isLoading = false;
+  String? _groqSummary;
+  String? _error;
+  bool _didLoad = false;
+
+
+  List<String> _topKeywords(List<Review> reviews, String sentiment, {int limit = 5}) {
+    if (reviews.isEmpty) return const [];
+
+    const tokenRegex = r"[a-zA-Z]+";
+    final freq = <String, int>{};
+
+    for (final review in reviews) {
+      if (review.sentiment.trim().toLowerCase() != sentiment.trim().toLowerCase()) continue;
+      final text = review.text.toLowerCase();
+      final tokens = tokenRegex
+          .allMatches(text)
+          .map((m) => (m.group(0) ?? '').trim())
+          .where((w) => w.isNotEmpty)
+          .where((w) => w.length >= 3)
+          .where((w) => !_sentimentStopWords.contains(w))
+          .toList();
+
+      final uniqueTokens = tokens.toSet();
+      for (final w in uniqueTokens) {
+        freq[w] = (freq[w] ?? 0) + 1;
+      }
+    }
+
+    if (freq.isEmpty) return const [];
+
+    final sorted = freq.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+
+    return sorted.take(limit).map((e) => e.key).toList();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadGroqSummary();
+    });
+  }
+
+  Future<void> _loadGroqSummary() async {
+    if (_didLoad) return;
+    _didLoad = true;
+
+    if (widget.reviews.isEmpty) {
+      // Keep UX: show fallback message.
+      setState(() {
+        _groqSummary = null;
+        _isLoading = false;
+        _error = null;
+      });
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+
+    try {
+      // Normalize sentiment casing once to avoid mismatches like 'positive' vs 'POSITIVE'.
+      final normalizedSentiments = widget.reviews
+          .map((r) => r.sentiment.trim().toUpperCase())
+          .toList();
+
+      final pos = normalizedSentiments.where((s) => s == 'POSITIVE').length;
+      final neg = normalizedSentiments.where((s) => s == 'NEGATIVE').length;
+      final total = widget.reviews.length;
+
+      final avg =
+          widget.reviews.map((r) => r.stars).reduce((a, b) => a + b) / total;
+
+      final positiveKeywords = _topKeywords(widget.reviews, 'POSITIVE', limit: 8);
+      final negativeKeywords = _topKeywords(widget.reviews, 'NEGATIVE', limit: 8);
+
+      // Requested debug logging
+      // ignore: avoid_print
+      print('AI Summary Debug -> totalReviews=$total');
+      // ignore: avoid_print
+      print('AI Summary Debug -> positive review count=$pos');
+      // ignore: avoid_print
+      print('AI Summary Debug -> negative review count=$neg');
+      // ignore: avoid_print
+      print('AI Summary Debug -> extracted positive keywords=$positiveKeywords');
+      // ignore: avoid_print
+      print('AI Summary Debug -> extracted negative keywords=$negativeKeywords');
+
+      // Debug logging: show extracted keywords before fallback/Groq call.
+      // ignore: avoid_print
+      print('AI Summary Debug -> positiveKeywords extracted(before fallback)=$positiveKeywords');
+      // ignore: avoid_print
+      print('AI Summary Debug -> negativeKeywords extracted(before fallback)=$negativeKeywords');
+
+      // If keyword extraction yields empty, fall back to the rule-based keyword sets.
+      final fallbackPositive = _fallbackPositiveKeywords.map((e) => e.word).take(8).toList();
+      final fallbackNegative = _fallbackNegativeKeywords.map((e) => e.word).take(8).toList();
+
+      // Hard guarantee: never send empty arrays.
+      final positiveKeywordsToSend =
+          (positiveKeywords.isEmpty ? fallbackPositive : positiveKeywords).where((x) => x.trim().isNotEmpty).toList();
+      final negativeKeywordsToSend =
+          (negativeKeywords.isEmpty ? fallbackNegative : negativeKeywords).where((x) => x.trim().isNotEmpty).toList();
+
+      // Final guard for extreme cases.
+      final positiveKeywordsFinal = positiveKeywordsToSend.isEmpty
+          ? fallbackPositive
+          : positiveKeywordsToSend;
+      final negativeKeywordsFinal = negativeKeywordsToSend.isEmpty
+          ? fallbackNegative
+          : negativeKeywordsToSend;
+
+      // ignore: avoid_print
+      print('AI Summary Debug -> sending positiveKeywords=$positiveKeywordsFinal');
+      // ignore: avoid_print
+      print('AI Summary Debug -> sending negativeKeywords=$negativeKeywordsFinal');
+
+      // NOTE: update to your Flask host if different.
+      const flaskBaseUrl = 'http://10.0.2.2:5000';
+      final uri = Uri.parse('$flaskBaseUrl/groq/summary');
+
+// Requested debug: print exact values being sent to Groq via Flask.
+      final reviewsForDebug = widget.reviews;
+      // ignore: avoid_print
+      print('REVIEWS: ${reviewsForDebug.length}');
+      // ignore: avoid_print
+      print(
+          'SENTIMENTS: ${reviewsForDebug.map((r) => r.sentiment).toList()}');
+
+      final posWords = _buildWordCloud(
+        reviewsForDebug,
+        'POSITIVE',
+        5,
+      );
+      final negWords = _buildWordCloud(
+        reviewsForDebug,
+        'NEGATIVE',
+        5,
+      );
+
+      // ignore: avoid_print
+      print('POS WORDS: ${posWords.map((w) => w.word).toList()}');
+      // ignore: avoid_print
+      print('NEG WORDS: ${negWords.map((w) => w.word).toList()}');
+
+      final posKeywordsToSend = posWords.map((w) => w.word).toList();
+      final negKeywordsToSend = negWords.map((w) => w.word).toList();
+
+      // Do not send "—". If keyword list is empty, send fallback keywords.
+      List<String> _fallbackFromWeighted(List<WeightedWord> src) =>
+          src.map((e) => e.word).where((x) => x.trim().isNotEmpty).toList();
+
+      final groqFallbackPositive = _fallbackFromWeighted(
+        _fallbackPositiveKeywords.take(5).toList(),
+      );
+      final groqFallbackNegative = _fallbackFromWeighted(
+        _fallbackNegativeKeywords.take(5).toList(),
+      );
+
+      final positiveKeywordsForGroq = posKeywordsToSend.isEmpty
+          ? groqFallbackPositive
+          : posKeywordsToSend;
+      final negativeKeywordsForGroq = negKeywordsToSend.isEmpty
+          ? groqFallbackNegative
+          : negKeywordsToSend;
+
+      // Final guard: remove blanks and ensure no '—' gets sent.
+      final positiveKeywordsFinalForGroq = positiveKeywordsForGroq
+          .map((x) => x.toString().trim())
+          .where((x) => x.isNotEmpty)
+          .where((x) => x != '—')
+          .toList();
+      final negativeKeywordsFinalForGroq = negativeKeywordsForGroq
+          .map((x) => x.toString().trim())
+          .where((x) => x.isNotEmpty)
+          .where((x) => x != '—')
+          .toList();
+
+      // ignore: avoid_print
+      print(
+          'AI Summary Debug -> sending positiveKeywords=${positiveKeywordsFinalForGroq}');
+      // ignore: avoid_print
+      print(
+          'AI Summary Debug -> sending negativeKeywords=${negativeKeywordsFinalForGroq}');
+
+      // Use the printed keyword lists for the payload.
+      final body = {
+        'totalReviews': total,
+        'avgRating': avg,
+        'positiveCount': pos,
+        'negativeCount': neg,
+        'positiveKeywords': positiveKeywordsFinalForGroq,
+        'negativeKeywords': negativeKeywordsFinalForGroq,
+      };
+
+
+      final resp = await http.post(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(body),
+      );
+
+      if (resp.statusCode != 200) {
+        throw Exception('Groq summary request failed: ${resp.statusCode} ${resp.body}');
+      }
+
+      final decoded = jsonDecode(resp.body);
+      final summary = decoded['summary'];
+      if (summary is String && summary.trim().isNotEmpty) {
+        setState(() {
+          _groqSummary = summary.trim();
+          _isLoading = false;
+          _error = null;
+        });
+      } else {
+        throw Exception('Invalid Groq response format');
+      }
+    } catch (e) {
+      setState(() {
+        _error = e.toString();
+        _groqSummary = null;
+        _isLoading = false;
+      });
+    }
+  }
+
+  String _summaryRuleBased(List<Review> reviews) {
+
     if (reviews.isEmpty) {
-      return 'No reviews yet. Share your restaurant with customers to get started!';
+      return 'No reviews available yet. Customer insights will appear once reviews are submitted.';
     }
+
+
     final pos =
-      reviews.where((r) => r.sentiment.trim().toUpperCase() == 'POSITIVE').length;
+        reviews.where((r) => r.sentiment.trim().toLowerCase() == 'positive').length;
     final neg =
-      reviews.where((r) => r.sentiment.trim().toUpperCase() == 'NEGATIVE').length;
-    final avg = reviews.map((r) => r.stars).reduce((a, b) => a + b) /
-        reviews.length;
-    if (pos > neg) {
-      return 'Overall ${reviews.length} review${reviews.length > 1 ? 's' : ''} with a ${avg.toStringAsFixed(1)} average — mostly positive. Customers are happy!';
-    } else if (neg > pos) {
-      return '${reviews.length} review${reviews.length > 1 ? 's' : ''} averaging ${avg.toStringAsFixed(1)} stars. Some concerns raised — consider improving service.';
+        reviews.where((r) => r.sentiment.trim().toLowerCase() == 'negative').length;
+
+    final avg =
+        reviews.map((r) => r.stars).reduce((a, b) => a + b) / reviews.length;
+
+    final total = reviews.length;
+    final trend = () {
+      if (pos > neg) return 'mostly positive';
+      if (neg > pos) return 'mostly negative';
+      return 'mixed';
+    }();
+
+    // Reuse existing rule-based tokenization + stopwords (no additional ML).
+    const tokenRegex = r"[a-zA-Z]+";
+
+    List<WeightedWord> topPositive = [];
+    List<WeightedWord> topNegative = [];
+
+    Map<String, int> _buildFreq(String sentiment) {
+      final freq = <String, int>{};
+      for (final review in reviews) {
+        if (review.sentiment.trim().toUpperCase() != sentiment) continue;
+
+        final text = review.text.toLowerCase();
+        final tokens = tokenRegex
+            .allMatches(text)
+            .map((m) => (m.group(0) ?? '').trim())
+            .where((w) => w.isNotEmpty)
+            .where((w) => w.length >= 3)
+            .where((w) => !_sentimentStopWords.contains(w))
+            .toList();
+
+        final uniqueTokens = tokens.toSet();
+        for (final w in uniqueTokens) {
+          freq[w] = (freq[w] ?? 0) + 1;
+        }
+      }
+      return freq;
     }
-    return 'Mixed reviews with ${avg.toStringAsFixed(1)} average. Keep improving!';
+
+    Map<String, int> _freqToTop(Map<String, int> freq, int limit) {
+      if (freq.isEmpty) return {};
+      final sorted = freq.entries.toList()
+        ..sort((a, b) => b.value.compareTo(a.value));
+      final top = sorted.take(limit).toList();
+      final maxCount = top.isNotEmpty ? top.first.value : 1;
+      final out = <String, int>{};
+      for (final e in top) {
+        // Weight isn't used for text summary; keep simple counts.
+        out[e.key] = maxCount > 0 ? (e.value / maxCount * 1000).toInt() : 0;
+      }
+      return out;
+    }
+
+    final posFreq = _buildFreq('POSITIVE');
+    final negFreq = _buildFreq('NEGATIVE');
+
+    final posTopMap = _freqToTop(posFreq, 5);
+    final negTopMap = _freqToTop(negFreq, 5);
+
+    topPositive = posTopMap.entries
+        .map((e) => WeightedWord(word: e.key, weight: e.value.toDouble()))
+        .toList();
+    topNegative = negTopMap.entries
+        .map((e) => WeightedWord(word: e.key, weight: e.value.toDouble()))
+        .toList();
+
+    String _fmtKeywords(List<WeightedWord> words) {
+      if (words.isEmpty) return '—';
+      final list = words.take(3).map((w) => "'${w.word}'").toList();
+      return list.join(', ');
+    }
+
+    final mostPos = _fmtKeywords(topPositive);
+    final mostNeg = _fmtKeywords(topNegative);
+
+    // Actionable recommendations driven by keyword patterns.
+    // (Still rule-based; multilingual friendly keywords included.)
+    final negativeRecs = <String>[];
+    void addRec(String rec) {
+      if (!negativeRecs.contains(rec)) negativeRecs.add(rec);
+    }
+
+    bool containsAny(List<WeightedWord> words, List<String> keys) {
+      final set = words.map((w) => w.word.toLowerCase()).toSet();
+      return keys.any(set.contains);
+    }
+
+    final negWords = topNegative;
+
+    if (containsAny(negWords, ['dirty', 'clean', 'smelly', 'basi', 'cold', 'crowded'])) {
+      // cleanliness-related hints
+      if (containsAny(negWords, ['dirty', 'smelly'])) {
+        addRec('Focus on cleanliness and odor control (e.g., sanitize tables/toilets more consistently).');
+      }
+      if (containsAny(negWords, ['clean'])) {
+        // if 'clean' appears as negative keyword, it can indicate mismatch (e.g., “not clean”)—still a cleanliness cue.
+        addRec('Double-check cleanliness checkpoints (tables, utensils, and washroom).');
+      }
+      if (containsAny(negWords, ['cold'])) {
+        addRec('Improve temperature consistency so food arrives hot/fresh.');
+      }
+      if (containsAny(negWords, ['basi'])) {
+        addRec('Improve freshness and prep timing to avoid “stale/old” taste.');
+      }
+    }
+
+    if (containsAny(negWords, ['slow'])) {
+      addRec('Reduce waiting time by optimizing kitchen workflow and queue management.');
+    }
+
+    if (containsAny(negWords, ['wait', 'late'])) {
+      addRec('Set clearer service expectations and work on faster order turnaround.');
+    }
+
+    if (containsAny(negWords, ['rude'])) {
+      addRec('Re-train staff on friendly service and faster, more polite responses.');
+    }
+
+    if (containsAny(negWords, ['expensive'])) {
+      addRec('Review pricing/value: consider bundle deals, promotions, or portion/value alignment.');
+    }
+
+    if (containsAny(negWords, ['noisy', 'crowded'])) {
+      addRec('Manage crowding/noise (spacing, seating flow, and staff coverage) for a calmer dining experience.');
+    }
+
+    if (negativeRecs.isEmpty) {
+      // Generic but still actionable.
+      addRec('Keep improving service and food consistency—use the feedback themes from your next reviews to target specific fixes.');
+    }
+
+    // Positive recommendations (what to keep doing)
+    final posRecs = <String>[];
+    final posWords = topPositive;
+    void addPosRec(String rec) {
+      if (!posRecs.contains(rec)) posRecs.add(rec);
+    }
+
+    if (containsAny(posWords, ['sedap', 'delicious', 'tasty', 'fresh', 'hot', 'pleasant'])) {
+      addPosRec('Keep doing what customers love about food quality—maintain freshness and taste consistency.');
+    }
+    if (containsAny(posWords, ['friendly', 'fast', 'excellent'])) {
+      addPosRec('Strengthen the strengths in service speed and friendliness with consistent staff practices.');
+    }
+
+    String _joinRecs(List<String> recs) {
+      if (recs.isEmpty) return '';
+      final shown = recs.take(2).toList();
+      return shown.join(' ');
+    }
+
+    String recommendations = '';
+    if (trend == 'mostly positive') {
+      recommendations = 'Keep the momentum. ' +
+          (posRecs.isEmpty
+              ? 'Monitor what’s working and maintain quality standards across food and service.'
+              : _joinRecs(posRecs));
+
+      // Add one gentle improvement from negative side if available.
+      if (topNegative.isNotEmpty) {
+        recommendations += ' At the same time, address the biggest concerns (e.g., ' +
+            mostNeg.replaceAll("'", '') + ' ) to make the experience even smoother.';
+      }
+    } else if (trend == 'mostly negative') {
+      recommendations = 'Prioritize fixes that match the feedback. ' + _joinRecs(negativeRecs);
+      if (topPositive.isNotEmpty) {
+        recommendations += ' Also, protect your strengths (e.g., ' +
+            mostPos.replaceAll("'", '') + ') so improvement doesn’t reduce quality.';
+      }
+    } else {
+      recommendations = 'You have a mix of praise and concerns. ' +
+          'Focus on resolving the top negative themes first (e.g., ' +
+          mostNeg.replaceAll("'", '') + ') while continuing what customers like most (e.g., ' +
+          mostPos.replaceAll("'", '') + ').';
+    }
+
+    // Final owner-friendly business insight summary.
+    final trendLabel = () {
+      if (trend == 'mostly positive') return 'Overall sentiment is positive';
+      if (trend == 'mostly negative') return 'Overall sentiment is negative';
+      return 'Overall sentiment is mixed';
+    }();
+
+    return '$trendLabel with an average rating of ${avg.toStringAsFixed(1)}★ from $total reviews. ' +
+        'Most common positive keywords: $mostPos. ' +
+        'Most common negative keywords: $mostNeg. ' +
+        recommendations;
   }
 
   @override
@@ -746,9 +1221,14 @@ class _AISummaryCard extends StatelessWidget {
               style:
                   TextStyle(color: AppColors.grey, fontSize: 11)),
           const SizedBox(height: 8),
-          Text(_summary(),
-              style: const TextStyle(
-                  fontSize: 13, color: AppColors.textDark)),
+          Text(
+            _isLoading
+                ? 'Generating summary…'
+                : (_groqSummary ?? _summaryRuleBased(widget.reviews)),
+            style: const TextStyle(fontSize: 13, color: AppColors.textDark),
+          ),
+
+
         ],
       ),
     );
@@ -822,7 +1302,7 @@ class _ReviewsTab extends StatelessWidget {
         padding: EdgeInsets.all(32),
         child: Center(
           child: Text(
-            'No reviews yet.\nCustomers can leave reviews from the restaurant page.',
+            'No reviews yet.\nThe summaries will appear after user make a review.',
             textAlign: TextAlign.center,
             style: TextStyle(color: AppColors.grey, fontSize: 14),
           ),
@@ -848,15 +1328,18 @@ class _ReviewsTab extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(
-                        children: List.generate(
-                      5,
-                      (i) => Icon(
-                          i < r.stars
-                              ? Icons.star
-                              : Icons.star_border,
-                          color: const Color(0xFFFFC107),
-                          size: 18),
-                    )),
+                      children: List.generate(
+                        5,
+                        (i) => Padding(
+                          padding: const EdgeInsets.only(right: 2),
+                          child: _starGlyph(
+                            i < r.stars,
+                            size: 17,
+                            color: const Color(0xFFFFC107),
+                          ),
+                        ),
+                      ),
+                    ),
                     const SizedBox(height: 6),
                     Text(r.text,
                         style: const TextStyle(fontSize: 13)),
@@ -992,9 +1475,7 @@ class _MenuTab extends StatelessWidget {
                                   fontSize: 13)),
                           if (item.rating > 0)
                             Row(children: [
-                              const Icon(Icons.star,
-                                  color: Color(0xFFFFC107),
-                                  size: 14),
+                              _starGlyph(true, size: 14, color: const Color(0xFFFFC107)),
                               const SizedBox(width: 3),
                               Text(item.rating.toStringAsFixed(1),
                                   style: const TextStyle(
@@ -1152,24 +1633,27 @@ class _AnalyticsTab extends StatelessWidget {
                     ),
                   ],
                 ),
-                const SizedBox(height: 24),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('Sentiment Word Cloud',
-                        style: TextStyle(
-                            fontWeight: FontWeight.bold, fontSize: 14)),
-                    const SizedBox(height: 12),
-                    SentimentWordCloud(
-                      positiveWords:
-                          _buildWordCloud(reviews, 'POSITIVE', 8),
-                      negativeWords:
-                          _buildWordCloud(reviews, 'NEGATIVE', 8),
-                    ),
-                  ],
-                ),
               ],
             ),
+          const SizedBox(height: 24),
+          const Text('Sentiment Word Cloud',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+          const SizedBox(height: 4),
+          const Text(
+            'AI-classified review keywords with larger terms reflecting more frequent mentions.',
+            style: TextStyle(
+              fontSize: 12,
+              color: AppColors.textMuted,
+              height: 1.3,
+            ),
+          ),
+          const SizedBox(height: 12),
+          SentimentWordCloud(
+            positiveWords:
+                reviews.isEmpty ? const [] : _buildWordCloud(reviews, 'POSITIVE', 12),
+            negativeWords:
+                reviews.isEmpty ? const [] : _buildWordCloud(reviews, 'NEGATIVE', 12),
+          ),
         ],
       ),
     );

@@ -1,20 +1,7 @@
-TODO
-
-## Plan confirmation
-- [ ] Read repo files relevant to sentiment pipeline.
-- [ ] Produce/confirm comprehensive edit plan for what the user ultimately wants.
-
-## Sentiment pipeline checks (current code)
-- [ ] Verify how `cleaned_reviews.csv` is generated and what label schema is used.
-- [ ] Ensure model/vectorizer files are trained with consistent parameters.
-- [ ] Verify API endpoint input/output matches Flutter client expectations.
-
-## Tests
-- [ ] Run `python train_model.py` to regenerate `sentiment_model.pkl` and `vectorizer.pkl`.
-- [ ] Run `python test_model.py` with a sample review to sanity check predictions.
-- [ ] Start Flask server and test `/predict` with curl/postman.
-
-## Flutter integration
-- [ ] Verify `lib/main.dart`, `lib/db_connect.py`, `lib/data/app_state.dart` correctly call Flask API.
-- [ ] Ensure prediction label mapping (positive/negative) is consistent end-to-end.
+- [x] Inspect keyword extraction + Groq summary pipeline in Flutter and Flask.
+- [x] Add required debug logging (total/pos/neg + extracted positive/negative keywords) in Flutter.
+- [x] Normalize sentiment casing using `trim().toUpperCase()` before counting/extracting.
+- [x] Guarantee `positiveKeywords`/`negativeKeywords` are never empty before sending to Flask (fallback keywords used when extraction is empty).
+- [x] Update Flask prompt wiring to avoid dash placeholders when keywords are unexpectedly empty.
+- [ ] Run the app, open Owner Dashboard → Analytics/AISummary, and verify console logs and that keywords no longer display as “—”.
 
