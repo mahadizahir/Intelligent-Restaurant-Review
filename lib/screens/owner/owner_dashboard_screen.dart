@@ -775,8 +775,6 @@ class _AISummaryCardState extends State<_AISummaryCard> {
   bool _isLoading = false;
   String? _groqSummary;
   String? _error;
-  bool _didLoad = false;
-
 
   List<String> _topKeywords(List<Review> reviews, String sentiment, {int limit = 5}) {
     if (reviews.isEmpty) return const [];
@@ -817,14 +815,23 @@ class _AISummaryCardState extends State<_AISummaryCard> {
     });
   }
 
+  @override
+  void didUpdateWidget(covariant _AISummaryCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    if (oldWidget.reviews.length != widget.reviews.length) {
+      _groqSummary = null;
+      _error = null;
+      _loadGroqSummary();
+    }
+  }
+
   Future<void> _loadGroqSummary() async {
-    if (_didLoad) return;
-    _didLoad = true;
 
     if (widget.reviews.isEmpty) {
       // Keep UX: show fallback message.
       setState(() {
-        _groqSummary = null;
+        _groqSummary = 'No reviews yet. AI summary will appear once customers submit reviews.';
         _isLoading = false;
         _error = null;
       });
@@ -1226,7 +1233,9 @@ class _AISummaryCardState extends State<_AISummaryCard> {
           Text(
             _isLoading
                 ? 'Generating summary…'
-                : (_groqSummary ?? _summaryRuleBased(widget.reviews)),
+                : (_groqSummary != null
+                    ? _groqSummary!
+                    : 'GROQ FAILED: $_error'),
             style: const TextStyle(fontSize: 13, color: AppColors.textDark),
           ),
 
@@ -1656,7 +1665,299 @@ class _AnalyticsTab extends StatelessWidget {
             negativeWords:
                 reviews.isEmpty ? const [] : _buildWordCloud(reviews, 'NEGATIVE', 12),
           ),
+          const SizedBox(height: 16),
+          const Text('AI Recommendations',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+          const SizedBox(height: 4),
+          const Text(
+            'AI-generated actionable insights based on customer review sentiment.',
+            style: TextStyle(
+              fontSize: 12,
+              color: AppColors.textMuted,
+              height: 1.3,
+            ),
+          ),
+          const SizedBox(height: 12),
+          _AISuggestionsCard(reviews: reviews),
         ],
+      ),
+    );
+  }
+}
+
+class _AISuggestionsCard extends StatefulWidget {
+  final List<Review> reviews;
+  const _AISuggestionsCard({required this.reviews});
+
+  @override
+  State<_AISuggestionsCard> createState() => _AISuggestionsCardState();
+}
+
+class _AISuggestionsCardState extends State<_AISuggestionsCard> {
+  bool _isLoading = false;
+  Map<String, List<String>>? _suggestions;
+  String? _error;
+
+  List<String> _topKeywords(List<Review> reviews, String sentiment, {int limit = 8}) {
+    if (reviews.isEmpty) return const [];
+    final tokenRegex = RegExp(r"[a-zA-Z]+");
+    final freq = <String, int>{};
+    for (final review in reviews) {
+      if (review.sentiment.trim().toUpperCase() != sentiment.trim().toUpperCase()) continue;
+      final text = review.text.toLowerCase();
+      final tokens = tokenRegex
+          .allMatches(text)
+          .map((m) => (m.group(0) ?? '').trim())
+          .where((w) => w.isNotEmpty)
+          .where((w) => w.length >= 3)
+          .where((w) => !_sentimentStopWords.contains(w))
+          .toList();
+      final uniqueTokens = tokens.toSet();
+      for (final w in uniqueTokens) {
+        freq[w] = (freq[w] ?? 0) + 1;
+      }
+    }
+    if (freq.isEmpty) return const [];
+    final sorted = freq.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+    return sorted.take(limit).map((e) => e.key).toList();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadSuggestions();
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant _AISuggestionsCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.reviews.length != widget.reviews.length) {
+      _suggestions = null;
+      _error = null;
+      _loadSuggestions();
+    }
+  }
+
+  Future<void> _loadSuggestions() async {
+    if (widget.reviews.isEmpty) {
+      setState(() {
+        _suggestions = null;
+        _isLoading = false;
+        _error = null;
+      });
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+
+    try {
+      final pos = widget.reviews.where((r) => r.sentiment.trim().toUpperCase() == 'POSITIVE').length;
+      final neg = widget.reviews.where((r) => r.sentiment.trim().toUpperCase() == 'NEGATIVE').length;
+      final total = widget.reviews.length;
+      final avg = widget.reviews.map((r) => r.stars).reduce((a, b) => a + b) / total;
+
+      final posKeywords = _topKeywords(widget.reviews, 'POSITIVE', limit: 8);
+      final negKeywords = _topKeywords(widget.reviews, 'NEGATIVE', limit: 8);
+
+      final body = {
+        'totalReviews': total,
+        'avgRating': avg,
+        'positiveCount': pos,
+        'negativeCount': neg,
+        'positiveKeywords': posKeywords,
+        'negativeKeywords': negKeywords,
+      };
+
+      const flaskBaseUrl = 'http://127.0.0.1:5000';
+      final uri = Uri.parse('$flaskBaseUrl/groq/suggestions');
+
+      final resp = await http.post(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(body),
+      );
+
+      if (resp.statusCode != 200) {
+        throw Exception('Groq suggestions request failed: ${resp.statusCode}');
+      }
+
+      final decoded = jsonDecode(resp.body);
+      final suggestions = decoded['suggestions'];
+      if (suggestions is Map) {
+        final parsed = <String, List<String>>{};
+        for (final key in ['Strengths', 'Areas to Improve', 'Recommended Actions']) {
+          if (suggestions[key] is List) {
+            parsed[key] = (suggestions[key] as List).map((e) => e.toString()).toList();
+          } else {
+            parsed[key] = [];
+          }
+        }
+        setState(() {
+          _suggestions = parsed;
+          _isLoading = false;
+          _error = null;
+        });
+      } else {
+        throw Exception('Invalid suggestions response format');
+      }
+    } catch (e) {
+      setState(() {
+        _error = e.toString();
+        _suggestions = null;
+        _isLoading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading) {
+      return Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF8F9FA),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFFE0E0E0)),
+        ),
+        child: const Row(
+          children: [
+            SizedBox(
+              width: 18, height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF6B7FA3)),
+            ),
+            SizedBox(width: 10),
+            Text('Generating AI suggestions…',
+                style: TextStyle(fontSize: 13, color: AppColors.textMuted)),
+          ],
+        ),
+      );
+    }
+
+    if (_error != null) {
+      return Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFFF3E0),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFFFFCC80)),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.error_outline, color: Color(0xFFE65100), size: 20),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text('GROQ FAILED: $_error',
+                  style: const TextStyle(fontSize: 12, color: Color(0xFFE65100))),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (_suggestions == null) {
+      return Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF8F9FA),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFFE0E0E0)),
+        ),
+        child: const Row(
+          children: [
+            Icon(Icons.lightbulb_outline, color: Color(0xFF6B7FA3), size: 20),
+            SizedBox(width: 10),
+            Expanded(
+              child: Text('No reviews yet. AI suggestions will appear once customers submit reviews.',
+                  style: TextStyle(fontSize: 13, color: AppColors.textMuted)),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final sectionConfig = <String, Map<String, dynamic>>{
+      'Strengths': {
+        'icon': Icons.check_circle_outline,
+        'color': const Color(0xFF2E7D32),
+        'bgColor': const Color(0xFFE8F5E9),
+        'borderColor': const Color(0xFFA5D6A7),
+      },
+      'Areas to Improve': {
+        'icon': Icons.warning_amber_outlined,
+        'color': const Color(0xFFE65100),
+        'bgColor': const Color(0xFFFFF3E0),
+        'borderColor': const Color(0xFFFFCC80),
+      },
+      'Recommended Actions': {
+        'icon': Icons.lightbulb_outline,
+        'color': const Color(0xFF1565C0),
+        'bgColor': const Color(0xFFE3F2FD),
+        'borderColor': const Color(0xFF90CAF9),
+      },
+    };
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8F9FA),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE0E0E0)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: _suggestions!.keys.map((sectionTitle) {
+          final items = _suggestions![sectionTitle] ?? [];
+          if (items.isEmpty) return const SizedBox.shrink();
+          final config = sectionConfig[sectionTitle]!;
+
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: config['bgColor'] as Color,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: config['borderColor'] as Color, width: 1),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(config['icon'] as IconData, size: 16, color: config['color'] as Color),
+                      const SizedBox(width: 6),
+                      Text(sectionTitle,
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                            color: config['color'] as Color,
+                          )),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  ...items.map((item) => Padding(
+                    padding: const EdgeInsets.only(bottom: 3),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('• ', style: TextStyle(fontSize: 12, height: 1.4)),
+                        Expanded(
+                          child: Text(item,
+                              style: const TextStyle(fontSize: 12, color: AppColors.textDark, height: 1.4)),
+                        ),
+                      ],
+                    ),
+                  )),
+                ],
+              ),
+            ),
+          );
+        }).toList(),
       ),
     );
   }

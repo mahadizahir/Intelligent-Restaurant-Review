@@ -155,6 +155,144 @@ Return only the summary text.
         return jsonify({"error": str(e), "summary": None}), 500
 
 
+@app.route("/groq/suggestions", methods=["POST"])
+def groq_suggestions():
+    """Generate structured AI suggestions (Strengths, Areas to Improve, Recommended Actions) using Groq."""
+    data = request.get_json(force=True) or {}
+
+    total_reviews = int(data.get("totalReviews", 0))
+    avg_rating = float(data.get("avgRating", 0.0))
+    positive_count = int(data.get("positiveCount", 0))
+    negative_count = int(data.get("negativeCount", 0))
+    positive_keywords = data.get("positiveKeywords", []) or []
+    negative_keywords = data.get("negativeKeywords", []) or []
+
+    if total_reviews <= 0:
+        return jsonify({
+            "suggestions": {
+                "Strengths": ["No reviews yet. Suggestions will appear once customers submit reviews."],
+                "Areas to Improve": [],
+                "Recommended Actions": ["Encourage customers to leave reviews."]
+            }
+        })
+
+    groq_api_key = os.getenv("GROQ_API_KEY")
+    if not groq_api_key:
+        return jsonify({"error": "GROQ_API_KEY missing"}), 500
+
+    from groq import Groq
+    client = Groq(api_key=groq_api_key)
+
+    if not positive_keywords:
+        positive_keywords = ["satisfied customers", "good experience"]
+    if not negative_keywords:
+        negative_keywords = ["mixed feedback", "some concerns"]
+
+    positive_keywords = [str(x).strip() for x in positive_keywords if str(x).strip()]
+    negative_keywords = [str(x).strip() for x in negative_keywords if str(x).strip()]
+
+    if not positive_keywords:
+        positive_keywords = ["satisfied customers"]
+    if not negative_keywords:
+        negative_keywords = ["mixed feedback"]
+
+    prompt = f"""
+You are a restaurant business analyst.
+
+Analyze the customer review data and generate recommendations for the restaurant owner.
+
+Data:
+- Total Reviews: {total_reviews}
+- Average Rating: {avg_rating}
+- Positive Reviews: {positive_count}
+- Negative Reviews: {negative_count}
+- Positive Keywords: {', '.join(positive_keywords)}
+- Negative Keywords: {', '.join(negative_keywords)}
+
+Important:
+The keywords may contain English and Malay.
+
+Malay meanings:
+- sedap = delicious
+- kotor = dirty / unclean
+- lambat = slow
+- mahal = expensive
+- murah = cheap
+- mesra = friendly
+- kurang ajar = rude
+- bersih = clean
+- bising = noisy
+- basi = stale
+
+Rules:
+1. Focus ONLY on the provided keywords and statistics.
+2. Do NOT mention food, service, cleanliness, price, or staff unless supported by the keywords.
+3. Generate 3 sections:
+   - Strengths
+   - Areas to Improve
+   - Recommended Actions
+4. Each section must contain 2-4 bullet points.
+5. Recommendations must be practical and actionable for a restaurant owner.
+6. Keep the response under 150 words.
+7. Return plain text only.
+8.Do NOT assume cultural or language barriers.
+9. Do NOT invent information or make assumptions beyond the provided data.
+
+Example format:
+
+Strengths
+• Customers frequently mention friendly service.
+• Positive feedback highlights fast response times.
+
+Areas to Improve
+• Several reviews mention slow service.
+• Customers report rude staff interactions.
+
+Recommended Actions
+• Conduct customer service training.
+• Improve order processing workflow.
+• Monitor future reviews for recurring complaints.
+"""
+
+    try:
+        response = client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.4,
+            max_tokens=300,
+        )
+        raw = response.choices[0].message.content.strip()
+
+        # Parse the structured response into sections
+        sections = {"Strengths": [], "Areas to Improve": [], "Recommended Actions": []}
+        current_section = None
+
+        for line in raw.split("\n"):
+            line = line.strip()
+            if not line:
+                continue
+            if line in sections:
+                current_section = line
+            elif current_section and line.startswith("•"):
+                sections[current_section].append(line.lstrip("• ").strip())
+            elif current_section and line.startswith("-"):
+                sections[current_section].append(line.lstrip("- ").strip())
+
+        # Fallback if parsing produced empty sections
+        for key in sections:
+            if not sections[key]:
+                if key == "Strengths":
+                    sections[key] = [f"Positive feedback from {positive_count} customers."]
+                elif key == "Areas to Improve":
+                    sections[key] = [f"{negative_count} customers noted concerns."]
+                else:
+                    sections[key] = ["Continue monitoring customer feedback."]
+
+        return jsonify({"suggestions": sections})
+    except Exception as e:
+        return jsonify({"error": str(e), "suggestions": None}), 500
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
 
