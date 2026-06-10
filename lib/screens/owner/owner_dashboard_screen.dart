@@ -894,8 +894,10 @@ class _AISummaryCardState extends State<_AISummaryCard> {
       print('AI Summary Debug -> sending negativeKeywords=$negativeKeywordsFinal');
 
       // NOTE: update to your Flask host if different.
-      const flaskBaseUrl = 'http://10.0.2.2:5000';
+      const flaskBaseUrl = 'http://127.0.0.1:5000';
       final uri = Uri.parse('$flaskBaseUrl/groq/summary');
+
+
 
 // Requested debug: print exact values being sent to Groq via Flask.
       final reviewsForDebug = widget.reviews;

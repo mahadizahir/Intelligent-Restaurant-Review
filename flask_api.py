@@ -1,6 +1,11 @@
 from flask import Flask, request, jsonify
+from dotenv import load_dotenv
 import joblib
 import os
+
+load_dotenv("groq.env")
+
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 app = Flask(__name__)
 
@@ -37,11 +42,9 @@ def predict_sentiment():
     reviews = data["reviews"]
 
     results = []
-
     for review in reviews:
         review_vector = vectorizer.transform([review])
         prediction = model.predict(review_vector)[0]
-
         results.append({
             "review": review,
             "sentiment": prediction
@@ -51,9 +54,8 @@ def predict_sentiment():
 
 
 @app.route("/groq/summary", methods=["POST"])
-
 def groq_summary():
-    """Generate a short restaurant owner insight summary using Groq LLM.
+    """Generate exactly-3-sentence customer sentiment summary using Groq LLM.
 
     Expects JSON body:
     {
@@ -80,7 +82,6 @@ def groq_summary():
             "model": None
         })
 
-    # Read Groq API key from environment (do NOT hardcode)
     groq_api_key = os.getenv("GROQ_API_KEY")
     if not groq_api_key:
         return jsonify({
@@ -92,20 +93,12 @@ def groq_summary():
 
     client = Groq(api_key=groq_api_key)
 
-    # Keep prompt short and force 2-4 sentences.
-    sentiment_trend = (
-        "mostly positive" if positive_count > negative_count else
-        "mostly negative" if negative_count > positive_count else
-        "mixed"
-    )
-
-    # Safety fallback: if keywords are unexpectedly empty, avoid sending empty strings/dashes.
+    # Safety fallback: avoid sending empty/blank keyword lists.
     if not positive_keywords:
         positive_keywords = ["great food", "good service"]
     if not negative_keywords:
         negative_keywords = ["slow service", "cleanliness issues"]
 
-    # Guard against accidental empty/blank entries.
     positive_keywords = [str(x).strip() for x in positive_keywords if str(x).strip()]
     negative_keywords = [str(x).strip() for x in negative_keywords if str(x).strip()]
 
@@ -114,29 +107,36 @@ def groq_summary():
     if not negative_keywords:
         negative_keywords = ["slow service", "cleanliness issues"]
 
-    # Debug: log what we're sending to Groq.
-    print("Flask Groq Debug -> positiveKeywords", positive_keywords)
-    print("Flask Groq Debug -> negativeKeywords", negative_keywords)
+    prompt = f"""
+You are an AI restaurant review analyst.
 
-    pos_kw = ", ".join([str(x) for x in positive_keywords[:5]])
-    neg_kw = ", ".join([str(x) for x in negative_keywords[:5]])
+Review Statistics:
+- Total Reviews: {total_reviews}
+- Average Rating: {avg_rating}
+- Positive Reviews: {positive_count}
+- Negative Reviews: {negative_count}
 
-    prompt = (
-        "You are an analytics assistant for a restaurant owner. "
-        "Using the provided analytics, write a professional, friendly insight summary in 2 to 4 concise sentences. "
-        "Requirements: Mention overall sentiment ({sentiment_trend}), average rating ({avg_rating}), and total reviews ({total_reviews}). "
-        "Mention strengths using the most common positive keywords: {pos_kw}. "
-        "Mention concerns using the most common negative keywords: {neg_kw}. "
-        "End with exactly one actionable recommendation for improvement. "
-        "Do not add bullet points. Use plain English."
-    ).format(
-        sentiment_trend=sentiment_trend,
-        avg_rating=avg_rating,
-        total_reviews=total_reviews,
-        pos_kw=pos_kw,
-        neg_kw=neg_kw,
-    )
+Positive Keywords:
+{', '.join(positive_keywords)}
 
+Negative Keywords:
+{', '.join(negative_keywords)}
+
+Instructions:
+1. Analyze ONLY the information provided.
+2. Do NOT mention food unless food-related keywords appear.
+3. Do NOT mention service unless service-related keywords appear.
+4. Do NOT invent information.
+5. Write exactly 3 sentences.
+6. First sentence: overall customer sentiment.
+7. Second sentence: main strengths.
+8. Third sentence: main weaknesses and recommendation.
+
+Return only the summary text.
+"""
+
+    print("PROMPT SENT TO GROQ:")
+    print(prompt)
 
     try:
         response = client.chat.completions.create(
@@ -146,8 +146,11 @@ def groq_summary():
             max_tokens=220,
         )
         summary = response.choices[0].message.content.strip()
-        return jsonify({"summary": summary, "model": "llama-3.1-8b-instant"})
 
+        print("GROQ RESPONSE:")
+        print(summary)
+
+        return jsonify({"summary": summary, "model": "llama-3.1-8b-instant"})
     except Exception as e:
         return jsonify({"error": str(e), "summary": None}), 500
 

@@ -1,7 +1,6 @@
-- [x] Inspect keyword extraction + Groq summary pipeline in Flutter and Flask.
-- [x] Add required debug logging (total/pos/neg + extracted positive/negative keywords) in Flutter.
-- [x] Normalize sentiment casing using `trim().toUpperCase()` before counting/extracting.
-- [x] Guarantee `positiveKeywords`/`negativeKeywords` are never empty before sending to Flask (fallback keywords used when extraction is empty).
-- [x] Update Flask prompt wiring to avoid dash placeholders when keywords are unexpectedly empty.
-- [ ] Run the app, open Owner Dashboard → Analytics/AISummary, and verify console logs and that keywords no longer display as “—”.
+- [x] Update `flask_api.py` to use the exact prompt template (exactly 3 sentences, keyword-only constraints)
+- [x] Add debug prints: `PROMPT SENT TO GROQ:` + print(prompt)
+- [x] Add debug prints after Groq call: `GROQ RESPONSE:` + print(summary)
+- [x] Validate response still returned as JSON `{summary, model}`
+
 
