@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 
 import '../../data/app_state.dart';
+import '../../data/aspect_analyzer.dart';
 import '../../theme/app_colors.dart';
 
 import '../../screens/auth/register_screen.dart';
@@ -571,11 +572,9 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
             child: SingleChildScrollView(
               child: Column(
                 children: [
-                  _RatingSummaryCard(
-                      avgRating: avgRating,
-                      totalRatings: reviews.length),
+                  _RatingSummaryCard(reviews: reviews),
                   const SizedBox(height: 8),
-                  _CategoryScoresCard(avgRating: avgRating),
+                  _CategoryScoresCard(reviews: reviews),
                   const SizedBox(height: 8),
                   _AISummaryCard(reviews: reviews),
                   const SizedBox(height: 8),
@@ -611,101 +610,205 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _RatingSummaryCard extends StatelessWidget {
-  final double avgRating;
-  final int totalRatings;
-  const _RatingSummaryCard(
-      {required this.avgRating, required this.totalRatings});
+  final List<Review> reviews;
+  const _RatingSummaryCard({required this.reviews});
 
   @override
   Widget build(BuildContext context) {
+    final total = reviews.length;
+    final avg = total > 0
+        ? reviews.map((r) => r.stars).reduce((a, b) => a + b) / total
+        : 0.0;
+
+    // Count reviews per star (1–5)
+    final counts = List.generate(6, (_) => 0); // index 0 unused
+    for (final r in reviews) {
+      if (r.stars >= 1 && r.stars <= 5) counts[r.stars]++;
+    }
+
+    // Determine if we're on a narrow screen (mobile portrait)
+    final isNarrow = MediaQuery.of(context).size.width < 480;
+
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-          color: AppColors.white,
-          borderRadius: BorderRadius.circular(12)),
-      child: Row(
+        color: AppColors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: isNarrow
+          ? Column(
+              children: [
+                _buildAverageColumn(avg, total),
+                const SizedBox(height: 20),
+                _buildDistributionBars(counts, total),
+              ],
+            )
+          : Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildAverageColumn(avg, total),
+                const SizedBox(width: 32),
+                Expanded(child: _buildDistributionBars(counts, total)),
+              ],
+            ),
+    );
+  }
+
+  Widget _buildAverageColumn(double avg, int total) {
+    return SizedBox(
+      width: 120,
+      child: Column(
         children: [
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(avgRating > 0 ? avgRating.toStringAsFixed(1) : '–',
-                  style: const TextStyle(
-                      fontSize: 42, fontWeight: FontWeight.bold)),
-              Row(
-                children: List.generate(
-                  5,
-                  (i) => Padding(
-                    padding: const EdgeInsets.only(right: 2),
-                    child: _starGlyph(
-                      i < avgRating.round(),
-                      size: 18,
-                      color: const Color(0xFFFFC107),
-                    ),
-                  ),
+          Text(
+            avg > 0 ? avg.toStringAsFixed(1) : '0.0',
+            style: const TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 40,
+              color: AppColors.textDark,
+              height: 1.1,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: List.generate(
+              5,
+              (i) => Padding(
+                padding: const EdgeInsets.only(right: 2),
+                child: Icon(
+                  avg > 0 && i < avg.round()
+                      ? Icons.star
+                      : Icons.star_border,
+                  color: avg > 0
+                      ? const Color(0xFFFFC107)
+                      : AppColors.grey,
+                  size: 20,
                 ),
               ),
-              const SizedBox(height: 4),
-              Text(
-                  '$totalRatings ${totalRatings == 1 ? 'rating' : 'ratings'}',
-                  style: const TextStyle(
-                      color: AppColors.grey, fontSize: 13)),
-            ],
+            ),
           ),
-          const SizedBox(width: 24),
-          Expanded(
-            child: Column(
-              children: [5, 4, 3, 2, 1].map((star) {
-                final frac = star == 5
-                    ? 0.75
-                    : star == 4
-                        ? 0.10
-                        : 0.05;
-                return Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 2),
-                  child: Row(children: [
-                    Text('$star',
-                        style: const TextStyle(fontSize: 12)),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(4),
-                        child: LinearProgressIndicator(
-                          value: frac,
-                          minHeight: 6,
-                          backgroundColor: AppColors.lightGrey,
-                          valueColor:
-                              const AlwaysStoppedAnimation<Color>(
-                                  Color(0xFFFFC107)),
-                        ),
-                      ),
-                    ),
-                  ]),
-                );
-              }).toList(),
+          const SizedBox(height: 4),
+          Text(
+            total > 0 ? '$total rating${total == 1 ? '' : 's'}' : 'No ratings yet',
+            style: TextStyle(
+              fontSize: 12,
+              color: total > 0 ? AppColors.textMuted : AppColors.grey,
             ),
           ),
         ],
       ),
     );
   }
+
+  Widget _buildDistributionBars(List<int> counts, int total) {
+    return Column(
+      children: List.generate(5, (i) {
+        final star = 5 - i;
+        final count = counts[star];
+        final fraction = total > 0 ? count / total : 0.0;
+
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Row(
+            children: [
+              SizedBox(
+                width: 32,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    Text('$star',
+                        style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                            color: AppColors.textDark)),
+                    const SizedBox(width: 3),
+                    const Icon(Icons.star,
+                        size: 13, color: Color(0xFFFFC107)),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(6),
+                  child: LinearProgressIndicator(
+                    value: fraction,
+                    minHeight: 12,
+                    backgroundColor: AppColors.lightGrey,
+                    valueColor: const AlwaysStoppedAnimation<Color>(
+                        Color(0xFFFFC107)),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              SizedBox(
+                width: 30,
+                child: Text(
+                  '$count',
+                  textAlign: TextAlign.right,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textDark,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      }),
+    );
+  }
 }
 
 class _CategoryScoresCard extends StatelessWidget {
-  final double avgRating;
-  const _CategoryScoresCard({required this.avgRating});
+  final List<Review> reviews;
+  const _CategoryScoresCard({required this.reviews});
+
+  void _showAspectReviews(BuildContext context, String aspectKey, String label) {
+    final allReviews = filterReviewsByAspect(reviews, aspectKey);
+
+    // Compute stats for header
+    final totalCount = allReviews.length;
+    final positiveCount = allReviews.where((r) => r.sentiment.trim().toUpperCase() == 'POSITIVE').length;
+    final negativeCount = allReviews.where((r) => r.sentiment.trim().toUpperCase() == 'NEGATIVE').length;
+    final avgAspectRating = totalCount > 0
+        ? allReviews.map((r) => r.stars).reduce((a, b) => a + b) / totalCount
+        : 0.0;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return _AspectReviewSheet(
+          allReviews: allReviews,
+          aspectKey: aspectKey,
+          label: label,
+          totalCount: totalCount,
+          positiveCount: positiveCount,
+          negativeCount: negativeCount,
+          avgAspectRating: avgAspectRating,
+        );
+      },
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-    final scores = [
-      {'label': 'Food', 'value': (avgRating * 1.02).clamp(0.0, 5.0)},
-      {'label': 'Service', 'value': (avgRating * 0.6).clamp(0.0, 5.0)},
-      {'label': 'Price', 'value': (avgRating * 0.9).clamp(0.0, 5.0)},
-      {
-        'label': 'Cleanliness',
-        'value': (avgRating * 1.05).clamp(0.0, 5.0)
-      },
-    ];
+    final results = analyzeCategoryScores(reviews);
+
+    final aspectKeys = ['food', 'service', 'price', 'cleanliness'];
+    final aspectLabels = ['Food', 'Service', 'Price', 'Cleanliness'];
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: GridView.count(
@@ -715,49 +818,66 @@ class _CategoryScoresCard extends StatelessWidget {
         childAspectRatio: 3.2,
         mainAxisSpacing: 8,
         crossAxisSpacing: 8,
-        children: scores.map((s) {
-          final val = s['value'] as double;
-          return Container(
-            padding: const EdgeInsets.symmetric(
-                horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(
-              color: const Color(0xFF6B7FA3),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(s['label'] as String,
-                    style: const TextStyle(
-                        color: AppColors.white, fontSize: 12)),
-                const SizedBox(height: 4),
-                Row(children: [
+        children: List.generate(4, (i) {
+          final result = results[i];
+          return GestureDetector(
+            onTap: () =>
+                _showAspectReviews(context, aspectKeys[i], aspectLabels[i]),
+            child: Container(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFF6B7FA3),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(
+                children: [
                   Expanded(
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(3),
-                      child: LinearProgressIndicator(
-                        value: val / 5.0,
-                        minHeight: 5,
-                        backgroundColor:
-                            AppColors.white.withOpacity(0.3),
-                        valueColor:
-                            const AlwaysStoppedAnimation<Color>(
-                                Color(0xFFFFC107)),
-                      ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(result.label,
+                            style: const TextStyle(
+                                color: AppColors.white, fontSize: 12)),
+                        const SizedBox(height: 4),
+                        Row(children: [
+                          Expanded(
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(3),
+                              child: LinearProgressIndicator(
+                                value: result.hasData
+                                    ? result.avgScore / 5.0
+                                    : 0.0,
+                                minHeight: 5,
+                                backgroundColor:
+                                    AppColors.white.withOpacity(0.3),
+                                valueColor:
+                                    const AlwaysStoppedAnimation<Color>(
+                                        Color(0xFFFFC107)),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            result.hasData
+                                ? result.avgScore.toStringAsFixed(1)
+                                : 'N/A',
+                            style: const TextStyle(
+                                color: AppColors.white,
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold),
+                          ),
+                        ]),
+                      ],
                     ),
                   ),
                   const SizedBox(width: 6),
-                  Text(val.toStringAsFixed(1),
-                      style: const TextStyle(
-                          color: AppColors.white,
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold)),
-                ]),
-              ],
+                ],
+              ),
             ),
           );
-        }).toList(),
+        }),
       ),
     );
   }
@@ -1958,6 +2078,296 @@ class _AISuggestionsCardState extends State<_AISuggestionsCard> {
             ),
           );
         }).toList(),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Aspect Review Bottom Sheet (with interactive filter chips)
+// ─────────────────────────────────────────────────────────────────────────────
+class _AspectReviewSheet extends StatefulWidget {
+  final List<Review> allReviews;
+  final String aspectKey;
+  final String label;
+  final int totalCount;
+  final int positiveCount;
+  final int negativeCount;
+  final double avgAspectRating;
+
+  const _AspectReviewSheet({
+    required this.allReviews,
+    required this.aspectKey,
+    required this.label,
+    required this.totalCount,
+    required this.positiveCount,
+    required this.negativeCount,
+    required this.avgAspectRating,
+  });
+
+  @override
+  State<_AspectReviewSheet> createState() => _AspectReviewSheetState();
+}
+
+class _AspectReviewSheetState extends State<_AspectReviewSheet> {
+  String _filter = 'all'; // 'all', 'positive', 'negative'
+
+  List<Review> get _filteredReviews {
+    switch (_filter) {
+      case 'positive':
+        return widget.allReviews
+            .where((r) => r.sentiment.trim().toUpperCase() == 'POSITIVE')
+            .toList();
+      case 'negative':
+        return widget.allReviews
+            .where((r) => r.sentiment.trim().toUpperCase() == 'NEGATIVE')
+            .toList();
+      default:
+        return widget.allReviews;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final displayed = _filteredReviews;
+    final displayedCount = displayed.length;
+
+    return DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.7,
+      minChildSize: 0.3,
+      maxChildSize: 0.95,
+      builder: (ctx, scrollController) {
+        return Container(
+          decoration: const BoxDecoration(
+            color: Color(0xFFFFFFFF),
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // ── Drag handle ─────────────────────────────────────────
+              Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Color(0xFFD0D0D0),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+              ),
+
+              // ── Header section ──────────────────────────────────────
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Aspect title - 24px semi-bold
+                    Text(
+                      '${widget.label} Reviews',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 24,
+                        color: Color(0xFF1A1A2E),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+
+                    // Total reviews
+                    Text(
+                      '${widget.totalCount} Review${widget.totalCount == 1 ? '' : 's'}',
+                      style: const TextStyle(
+                        fontSize: 15,
+                        color: Color(0xFF6B7280),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Interactive filter chips
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: [
+                          _buildFilterChip(
+                            label: 'All (${widget.totalCount})',
+                            isActive: _filter == 'all',
+                            activeColor: const Color(0xFF1565C0),
+                          ),
+                          const SizedBox(width: 10),
+                          _buildFilterChip(
+                            label: 'Positive (${widget.positiveCount})',
+                            isActive: _filter == 'positive',
+                            activeColor: const Color(0xFF2E7D32),
+                          ),
+                          const SizedBox(width: 10),
+                          _buildFilterChip(
+                            label: 'Negative (${widget.negativeCount})',
+                            isActive: _filter == 'negative',
+                            activeColor: const Color(0xFFD32F2F),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    const Divider(height: 1, color: Color(0xFFE5E7EB)),
+                    const SizedBox(height: 16),
+                  ],
+                ),
+              ),
+
+              // ── Review list ─────────────────────────────────────────
+              if (displayed.isEmpty)
+                Expanded(
+                  child: Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(32),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            'No reviews found for this filter',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: Color(0xFF9CA3AF),
+                              fontSize: 15,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                )
+              else
+                Expanded(
+                  child: ListView.builder(
+                    controller: scrollController,
+                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                    itemCount: displayed.length,
+                    itemBuilder: (ctx, i) {
+                      final r = displayed[i];
+                      final isPos = r.sentiment.trim().toUpperCase() == 'POSITIVE';
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 12),
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF8F9FA),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // Top row: stars (left) + sentiment badge (right)
+                            Row(
+                              children: [
+                                // Stars
+                                Row(
+                                  children: List.generate(
+                                    5,
+                                    (starI) => Padding(
+                                      padding: const EdgeInsets.only(right: 2),
+                                      child: Icon(
+                                        starI < r.stars
+                                            ? Icons.star
+                                            : Icons.star_border,
+                                        color: const Color(0xFFFFC107),
+                                        size: 16,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                const Spacer(),
+                                // Sentiment badge (top-right)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 10, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: isPos
+                                        ? const Color(0xFFDFF5E1)
+                                        : const Color(0xFFFDE2E2),
+                                    borderRadius: BorderRadius.circular(20),
+                                  ),
+                                  child: Text(
+                                    isPos ? 'POSITIVE' : 'NEGATIVE',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.bold,
+                                      color: isPos
+                                          ? const Color(0xFF2E7D32)
+                                          : const Color(0xFFC62828),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 10),
+                            // Highlighted review text
+                            buildHighlightedReviewText(r.text,
+                                aspectKey: widget.aspectKey),
+                            const SizedBox(height: 8),
+                            // Guest name
+                            Text(
+                              r.customerName,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: Color(0xFF9CA3AF),
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildFilterChip({
+    required String label,
+    required bool isActive,
+    required Color activeColor,
+  }) {
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          switch (label.split(' ').first.toLowerCase()) {
+            case 'all':
+              _filter = 'all';
+              break;
+            case 'positive':
+              _filter = 'positive';
+              break;
+            case 'negative':
+              _filter = 'negative';
+              break;
+          }
+        });
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+        decoration: BoxDecoration(
+          color: isActive ? activeColor : const Color(0xFFF3F4F6),
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: isActive
+              ? [BoxShadow(color: activeColor.withOpacity(0.3), blurRadius: 4, offset: const Offset(0, 2))]
+              : [],
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: isActive ? Colors.white : const Color(0xFF6B7280),
+          ),
+        ),
       ),
     );
   }
