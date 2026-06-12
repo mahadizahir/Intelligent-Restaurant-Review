@@ -291,6 +291,8 @@ Recommended Actions
         return jsonify({"suggestions": sections})
     except Exception as e:
         return jsonify({"error": str(e), "suggestions": None}), 500
+    
+    
 
 
 if __name__ == "__main__":

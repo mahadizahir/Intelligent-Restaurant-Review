@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:http/http.dart' as http;
@@ -13,6 +14,7 @@ import '../../screens/auth/register_screen.dart';
 import '../../screens/profile_screen.dart';
 import '../../widgets/image_helper.dart';
 import '../../widgets/sentiment_wordcloud.dart';
+import '../../widgets/premium_analytics_placeholders.dart';
 import '../../data/app_state.dart';
 
 
@@ -134,6 +136,7 @@ class OwnerDashboardScreen extends StatefulWidget {
 }
 
 class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
+  bool _isPremium = false;
   int _selectedTab = 0;
   final List<String> _tabs = [
     'Recent Reviews',
@@ -432,7 +435,9 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
     );
   }
 
-  void _confirmDelete(String id) {
+void _confirmDelete(String id) {
+  
+
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -576,7 +581,9 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
                   const SizedBox(height: 8),
                   _CategoryScoresCard(reviews: reviews),
                   const SizedBox(height: 8),
-                  _AISummaryCard(reviews: reviews),
+                  _isPremium
+                      ? _AISummaryCard(reviews: reviews)
+                      : _LockedAISummaryCard(),
                   const SizedBox(height: 8),
                   _TabBar(
                     tabs: _tabs,
@@ -593,7 +600,18 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
                       onDelete: _confirmDelete,
                     ),
                   if (_selectedTab == 2)
-                    _AnalyticsTab(reviews: reviews),
+                    _AnalyticsTab(
+                      reviews: reviews,
+                      isPremium: _isPremium,
+                      onUpgrade: () {
+                        setState(() {
+                          _isPremium = true;
+                        });
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Premium Analytics unlocked!')),
+                        );
+                      },
+                    ),
                   const SizedBox(height: 32),
                 ],
               ),
@@ -883,9 +901,73 @@ class _CategoryScoresCard extends StatelessWidget {
   }
 }
 
+class _LockedAISummaryCard extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: const [
+              Icon(Icons.lock_outline, size: 18, color: Color(0xFFFFC107)),
+              SizedBox(width: 8),
+              Text(
+                'AI Summary',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Unlock Premium to generate AI summaries from customer reviews.',
+            style: TextStyle(
+              color: AppColors.grey,
+              fontSize: 12,
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: () {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Premium upgrade coming soon!')),
+                );
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFFFC107),
+                foregroundColor: Colors.white,
+                elevation: 0,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+              child: const Text(
+                'Upgrade to Premium',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _AISummaryCard extends StatefulWidget {
   final List<Review> reviews;
   const _AISummaryCard({required this.reviews});
+
 
   @override
   State<_AISummaryCard> createState() => _AISummaryCardState();
@@ -1297,7 +1379,7 @@ class _AISummaryCardState extends State<_AISummaryCard> {
     if (trend == 'mostly positive') {
       recommendations = 'Keep the momentum. ' +
           (posRecs.isEmpty
-              ? 'Monitor what’s working and maintain quality standards across food and service.'
+              ? 'Monitor what\'s working and maintain quality standards across food and service.'
               : _joinRecs(posRecs));
 
       // Add one gentle improvement from negative side if available.
@@ -1309,7 +1391,7 @@ class _AISummaryCardState extends State<_AISummaryCard> {
       recommendations = 'Prioritize fixes that match the feedback. ' + _joinRecs(negativeRecs);
       if (topPositive.isNotEmpty) {
         recommendations += ' Also, protect your strengths (e.g., ' +
-            mostPos.replaceAll("'", '') + ') so improvement doesn’t reduce quality.';
+            mostPos.replaceAll("'", '') + ') so improvement doesn\'t reduce quality.';
       }
     } else {
       recommendations = 'You have a mix of praise and concerns. ' +
@@ -1630,7 +1712,13 @@ class _MenuTab extends StatelessWidget {
 
 class _AnalyticsTab extends StatelessWidget {
   final List<Review> reviews;
-  const _AnalyticsTab({required this.reviews});
+  final bool isPremium;
+  final VoidCallback onUpgrade;
+  const _AnalyticsTab({
+    required this.reviews,
+    required this.isPremium,
+    required this.onUpgrade,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1641,12 +1729,6 @@ class _AnalyticsTab extends StatelessWidget {
     final maxCount =
         counts.values.reduce((a, b) => a > b ? a : b).toDouble();
 
-    // Calculate sentiment distribution
-    final positiveCount =
-      reviews.where((r) => r.sentiment.trim().toUpperCase() == 'POSITIVE').length;
-    final negativeCount =
-      reviews.where((r) => r.sentiment.trim().toUpperCase() == 'NEGATIVE').length;
-
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16),
       padding: const EdgeInsets.all(16),
@@ -1656,6 +1738,7 @@ class _AnalyticsTab extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // ── FREE: Rating Distribution ──────────────────────────────
           const Text('Rating Distribution',
               style: TextStyle(
                   fontWeight: FontWeight.bold, fontSize: 14)),
@@ -1664,7 +1747,7 @@ class _AnalyticsTab extends StatelessWidget {
             const Center(
                 child: Padding(
               padding: EdgeInsets.all(16),
-              child: Text('No data yet.',
+              child: Text('No rating data yet',
                   style: TextStyle(color: AppColors.grey)),
             ))
           else
@@ -1706,103 +1789,479 @@ class _AnalyticsTab extends StatelessWidget {
                 }).toList(),
               ),
             ),
+
           const SizedBox(height: 24),
-          // Sentiment Distribution Section
-          const Text('Sentiment Distribution',
-              style: TextStyle(
-                  fontWeight: FontWeight.bold, fontSize: 14)),
-          const SizedBox(height: 16),
-          if (reviews.isEmpty)
-            const Center(
-                child: Padding(
-              padding: EdgeInsets.all(16),
-              child: Text('No data yet.',
-                  style: TextStyle(color: AppColors.grey)),
-            ))
+
+          // ── PREMIUM SECTION (always shown after Rating Distribution) ──
+          if (isPremium)
+            _buildPremiumAnalytics()
           else
-            Column(
-              children: [
-                SizedBox(
-                  height: 300,
-                  child: Center(
-                    child: SizedBox(
-                      width: 220,
-                      height: 220,
-                      child: CustomPaint(
-                        painter: _SentimentPiePainter(
-                          positiveCount: positiveCount,
-                          negativeCount: negativeCount,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(width: 15, height: 15, color: Colors.green),
-                        const SizedBox(width: 8),
-                        const Text('Positive',
-                            style: TextStyle(
-                                fontWeight: FontWeight.bold, fontSize: 13)),
-                      ],
-                    ),
-                    const SizedBox(width: 24),
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(width: 15, height: 15, color: Colors.red),
-                        const SizedBox(width: 8),
-                        const Text('Negative',
-                            style: TextStyle(
-                                fontWeight: FontWeight.bold, fontSize: 13)),
-                      ],
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          const SizedBox(height: 24),
-          const Text('Sentiment Word Cloud',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-          const SizedBox(height: 4),
-          const Text(
-            'AI-classified review keywords with larger terms reflecting more frequent mentions.',
-            style: TextStyle(
-              fontSize: 12,
-              color: AppColors.textMuted,
-              height: 1.3,
-            ),
-          ),
-          const SizedBox(height: 12),
-          SentimentWordCloud(
-            positiveWords:
-                reviews.isEmpty ? const [] : _buildWordCloud(reviews, 'POSITIVE', 12),
-            negativeWords:
-                reviews.isEmpty ? const [] : _buildWordCloud(reviews, 'NEGATIVE', 12),
-          ),
-          const SizedBox(height: 16),
-          const Text('AI Recommendations',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-          const SizedBox(height: 4),
-          const Text(
-            'AI-generated actionable insights based on customer review sentiment.',
-            style: TextStyle(
-              fontSize: 12,
-              color: AppColors.textMuted,
-              height: 1.3,
-            ),
-          ),
-          const SizedBox(height: 12),
-          _AISuggestionsCard(reviews: reviews),
+            _buildPremiumPaywall(context),
         ],
       ),
     );
   }
+
+  Widget _buildPremiumAnalytics() {
+    final positiveCount =
+        reviews.where((r) => r.sentiment.trim().toUpperCase() == 'POSITIVE').length;
+    final negativeCount =
+        reviews.where((r) => r.sentiment.trim().toUpperCase() == 'NEGATIVE').length;
+
+    const premiumText = Color(0xFF1A1A2E);
+    const premiumGold = Color(0xFFFFC107);
+
+    Widget _featureTitle(String title) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 10),
+        child: Text(
+          title,
+          style: const TextStyle(
+            fontWeight: FontWeight.w800,
+            fontSize: 16,
+            color: premiumText,
+          ),
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _featureTitle('Sentiment Distribution'),
+        if (reviews.isEmpty)
+          const Center(
+            child: Padding(
+              padding: EdgeInsets.all(16),
+              child: Text('No data yet.',
+                  style: TextStyle(color: AppColors.grey)),
+            ),
+          )
+        else
+          Column(
+            children: [
+              Center(
+                child: SizedBox(
+                  width: 220,
+                  height: 220,
+                  child: CustomPaint(
+                    painter: _SentimentPiePainter(
+                      positiveCount: positiveCount,
+                      negativeCount: negativeCount,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 18),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(width: 14, height: 14, color: Colors.green),
+                      const SizedBox(width: 8),
+                      Text('Positive',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                            color: premiumText,
+                          )),
+                    ],
+                  ),
+                  const SizedBox(width: 24),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(width: 14, height: 14, color: Colors.red),
+                      const SizedBox(width: 8),
+                      Text('Negative',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                            color: premiumText,
+                          )),
+                    ],
+                  ),
+                ],
+              ),
+            ],
+          ),
+
+        const SizedBox(height: 18),
+
+        _featureTitle('Sentiment Word Cloud'),
+        const Text(
+          'AI-classified review keywords with larger terms reflecting more frequent mentions.',
+          style: TextStyle(
+            fontSize: 12.5,
+            color: AppColors.textMuted,
+            height: 1.35,
+          ),
+        ),
+        const SizedBox(height: 10),
+        SentimentWordCloud(
+          positiveWords: reviews.isEmpty ? const [] : _buildWordCloud(reviews, 'POSITIVE', 12),
+          negativeWords: reviews.isEmpty ? const [] : _buildWordCloud(reviews, 'NEGATIVE', 12),
+        ),
+
+        const SizedBox(height: 18),
+
+        _featureTitle('AI Recommendations'),
+        const Text(
+          'AI-generated actionable insights based on customer review sentiment.',
+          style: TextStyle(
+            fontSize: 12.5,
+            color: AppColors.textMuted,
+            height: 1.35,
+          ),
+        ),
+        const SizedBox(height: 10),
+        _AISuggestionsCard(reviews: reviews),
+
+        const SizedBox(height: 18),
+
+        Container(height: 1, width: double.infinity, color: premiumGold.withOpacity(0.35)),
+      ],
+    );
+  }
+
+
+
+
+  Widget _buildPremiumPaywall(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(28),
+      decoration: BoxDecoration(
+        color: AppColors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.06),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          // Premium Badge
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [Color(0xFFFFC107), Color(0xFFFFD54F)],
+              ),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: const Text(
+              'PREMIUM',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                fontSize: 11,
+                letterSpacing: 1.5,
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
+
+          // Lock Icon
+          Container(
+            width: 56,
+            height: 56,
+            decoration: BoxDecoration(
+              color: const Color(0xFFFFC107).withOpacity(0.12),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: const Icon(
+              Icons.lock_outline,
+              size: 28,
+              color: Color(0xFFFFC107),
+            ),
+          ),
+          const SizedBox(height: 20),
+
+          // Title
+          const Text(
+            'Premium Analytics',
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 20,
+              color: Color(0xFF1A1A2E),
+            ),
+          ),
+          const SizedBox(height: 8),
+
+          // Subtitle
+          const Text(
+            'Unlock advanced customer insights and AI-powered analytics.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 13,
+              color: Color(0xFF6B7280),
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 24),
+
+          // Divider
+          Container(height: 1, color: const Color(0xFFF3F4F6)),
+          const SizedBox(height: 20),
+
+          // Feature List
+          ..._buildPaywallFeatures().map((f) => Padding(
+            padding: const EdgeInsets.only(bottom: 14),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 22,
+                  height: 22,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFC107).withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: const Icon(Icons.check, size: 14, color: Color(0xFFFFC107)),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    f,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      color: Color(0xFF374151),
+                      height: 1.3,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          )),
+
+          const SizedBox(height: 8),
+
+          // Preview Locked Section
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF9FAFB),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: const Color(0xFFE5E7EB)),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                // Faded pie chart preview
+                Opacity(
+                  opacity: 0.4,
+                  child: Column(
+                    children: [
+                      SizedBox(
+                        width: 48,
+                        height: 48,
+                        child: CustomPaint(
+                          painter: _MiniPiePainter(),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      const Text('Sentiment',
+                          style: TextStyle(fontSize: 10, color: Color(0xFF9CA3AF))),
+                    ],
+                  ),
+                ),
+                // Faded word cloud preview
+                Opacity(
+                  opacity: 0.4,
+                  child: Column(
+                    children: [
+                      Container(
+                        width: 48,
+                        height: 48,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFE5E7EB),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Wrap(
+                          spacing: 2,
+                          runSpacing: 2,
+                          children: 'sedap fresh friendly'
+                              .split(' ')
+                              .map((w) => Text(w,
+                                  style: TextStyle(
+                                      fontSize: w == 'fresh' ? 10 : 7,
+                                      color: const Color(0xFF9CA3AF),
+                                      fontWeight: FontWeight.w500)))
+                              .toList(),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      const Text('Word Cloud',
+                          style: TextStyle(fontSize: 10, color: Color(0xFF9CA3AF))),
+                    ],
+                  ),
+                ),
+                // Lock indicator
+                Opacity(
+                  opacity: 0.4,
+                  child: Column(
+                    children: [
+                      Container(
+                        width: 48,
+                        height: 48,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFE5E7EB),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Icon(Icons.auto_awesome, size: 22, color: Color(0xFF9CA3AF)),
+                      ),
+                      const SizedBox(height: 6),
+                      const Text('AI Insights',
+                          style: TextStyle(fontSize: 10, color: Color(0xFF9CA3AF))),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Preview Locked',
+            style: TextStyle(
+              fontSize: 11,
+              color: Color(0xFFD1D5DB),
+              fontStyle: FontStyle.italic,
+            ),
+          ),
+          const SizedBox(height: 24),
+
+          // Upgrade Button with gradient
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: () {
+                showDialog(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    title: const Text('Unlock Premium Analytics?'),
+                    content: const Text(
+                      'Subscribe to access AI Summary, Sentiment Distribution, Word Cloud, AI Recommendations, and Review Insights.',
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.of(ctx).pop(),
+                        child: const Text('Cancel'),
+                      ),
+                      ElevatedButton(
+                        onPressed: () {
+                          Navigator.of(ctx).pop();
+                          onUpgrade();
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Premium Analytics unlocked!'),
+                            ),
+                          );
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.black,
+                          foregroundColor: AppColors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                        child: const Text('Subscribe'),
+                      ),
+                    ],
+                  ),
+                );
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFFFC107),
+                foregroundColor: Colors.white,
+                elevation: 0,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                shadowColor: const Color(0xFFFFC107).withOpacity(0.3),
+              ),
+              child: Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(14),
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFFFFC107), Color(0xFFFFD54F)],
+                  ),
+                ),
+                padding: const EdgeInsets.symmetric(vertical: 2),
+                child: const Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.stars_rounded, size: 18),
+                    SizedBox(width: 8),
+                    Text(
+                      'Upgrade to Premium',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 15,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  List<String> _buildPaywallFeatures() {
+    return const [
+      'Sentiment Distribution',
+      'Sentiment Word Cloud',
+      'AI Recommendations',
+      'Aspect-Based Review Analysis',
+      'Customer Feedback Trends',
+    ];
+  }
+}
+
+class _MiniPiePainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = math.min(size.width, size.height) / 2;
+    final paint = Paint()..style = PaintingStyle.fill;
+
+    // Draw a simple mini pie chart (60% green, 40% red)
+    paint.color = const Color(0xFF4CAF50);
+    canvas.drawArc(
+      Rect.fromCircle(center: center, radius: radius),
+      -math.pi / 2,
+      2.16 * math.pi * 0.6,
+      true,
+      paint,
+    );
+    paint.color = const Color(0xFFE53935);
+    canvas.drawArc(
+      Rect.fromCircle(center: center, radius: radius),
+      -math.pi / 2 + 2.16 * math.pi * 0.6,
+      2.16 * math.pi * 0.4,
+      true,
+      paint,
+    );
+    paint.color = const Color(0xFFE0E0E0);
+    paint.style = PaintingStyle.stroke;
+    paint.strokeWidth = 1;
+    canvas.drawCircle(center, radius, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 class _AISuggestionsCard extends StatefulWidget {
@@ -2483,4 +2942,3 @@ class _SentimentPiePainter extends CustomPainter {
         oldDelegate.negativeCount != negativeCount;
   }
 }
-
