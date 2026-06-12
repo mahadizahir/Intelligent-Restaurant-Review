@@ -3,6 +3,8 @@ import 'package:provider/provider.dart';
 import '../../data/app_state.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/image_helper.dart';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 
 class RestaurantDetailScreen extends StatefulWidget {
   final String restaurantId;
@@ -24,7 +26,7 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
     super.dispose();
   }
 
-  void _submitReview() {
+  Future<void> _submitReview() async {
     if (_reviewStars == 0) {
       ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Please select a star rating.')));
@@ -35,11 +37,34 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
           const SnackBar(content: Text('Please write your review.')));
       return;
     }
-    context.read<AppState>().addReview(
-          restaurantId: widget.restaurantId,
-          stars: _reviewStars,
-          text: _reviewController.text,
-        );
+    final state = context.read<AppState>();
+
+final response = await http.post(
+  Uri.parse('http://127.0.0.1:5000/add_review'),
+  headers: {
+    'Content-Type': 'application/json',
+  },
+  body: jsonEncode({
+    'user_id': int.parse(state.currentUser!.id),
+    'restaurant_id': int.parse(widget.restaurantId),
+    'rating': _reviewStars,
+    'comment': _reviewController.text,
+
+    'food_rating': _reviewStars.toDouble(),
+    'service_rating': _reviewStars.toDouble(),
+    'price_rating': _reviewStars.toDouble(),
+    'cleanliness_rating': _reviewStars.toDouble(),
+  }),
+);
+
+final data = jsonDecode(response.body);
+
+if (data['success'] != true) {
+  throw Exception(data['message']);
+}
+
+await state.loadRestaurants();
+
     setState(() {
       _reviewStars = 0;
       _reviewController.clear();
@@ -67,8 +92,6 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
     final restaurant =
         state.restaurants.firstWhere((r) => r.id == widget.restaurantId);
     final menuItems = state.menuItemsFor(widget.restaurantId);
-    final reviews = state.reviewsFor(widget.restaurantId);
-    final avg = state.averageRatingFor(widget.restaurantId);
 
     return Scaffold(
       backgroundColor: AppColors.backgroundGrey,
@@ -120,10 +143,35 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
                 Row(children: [
                   const Icon(Icons.star, color: AppColors.primary, size: 16),
                   const SizedBox(width: 4),
-                  Text(
-                      avg > 0 ? avg.toStringAsFixed(1) : '–',
-                      style: const TextStyle(
-                          fontWeight: FontWeight.bold, fontSize: 14)),
+                  
+                  FutureBuilder<double>(
+  future: (() {
+    print(
+      'Calling loadAverageRating for restaurant ${widget.restaurantId}'
+    );
+    return state.loadAverageRating(widget.restaurantId);
+  })(),
+  builder: (context, snapshot) {
+
+    if (!snapshot.hasData) {
+      return const Text(
+        '-',
+        style: TextStyle(
+          fontWeight: FontWeight.bold,
+          fontSize: 14,
+        ),
+      );
+    }
+
+    return Text(
+      snapshot.data!.toStringAsFixed(1),
+      style: const TextStyle(
+        fontWeight: FontWeight.bold,
+        fontSize: 14,
+      ),
+    );
+  },
+),
                 ]),
               ],
             ),
@@ -139,7 +187,7 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
                     active: _tab == 0,
                     onTap: () => setState(() => _tab = 0)),
                 _TabBtn(
-                    label: 'Reviews (${reviews.length})',
+                    label: 'Reviews',
                     active: _tab == 1,
                     onTap: () => setState(() => _tab = 1)),
                 _TabBtn(
@@ -158,13 +206,30 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
                   const SizedBox(height: 12),
                   if (_tab == 0) _MenuTab(items: menuItems),
                   if (_tab == 1)
-                    _ReviewsTab(
-                      reviews: reviews,
-                      stars: _reviewStars,
-                      onStarTap: (s) => setState(() => _reviewStars = s),
-                      reviewController: _reviewController,
-                      onSubmit: _submitReview,
-                    ),
+  FutureBuilder<List<Review>>(
+    future: state.loadReviews(widget.restaurantId),
+    builder: (context, snapshot) {
+
+      if (!snapshot.hasData) {
+        return const Center(
+          child: Padding(
+            padding: EdgeInsets.all(20),
+            child: CircularProgressIndicator(),
+          ),
+        );
+      }
+
+      final reviews = snapshot.data!;
+
+      return _ReviewsTab(
+        reviews: reviews,
+        stars: _reviewStars,
+        onStarTap: (s) => setState(() => _reviewStars = s),
+        reviewController: _reviewController,
+        onSubmit: _submitReview,
+      );
+    },
+  ),
                   if (_tab == 2) _AboutTab(restaurant: restaurant),
                   const SizedBox(height: 24),
                 ],

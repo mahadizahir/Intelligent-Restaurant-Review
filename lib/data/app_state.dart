@@ -4,6 +4,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 
 // ── Models ───────────────────────────────────────────────────────────────────
 
@@ -54,6 +56,7 @@ class MenuItem {
   String price;
   String description;
   double rating;
+  String? imagePath;
   Uint8List? imageBytes; // food photo bytes — works on Web + Mobile
 
   MenuItem({
@@ -63,6 +66,7 @@ class MenuItem {
     required this.price,
     required this.description,
     this.rating = 0.0,
+    this.imagePath,
     this.imageBytes,
   });
 }
@@ -90,43 +94,9 @@ class Review {
 class AppState extends ChangeNotifier {
   final List<AppUser> _users = [];
 
-  final List<Restaurant> _restaurants = [
-    Restaurant(
-      id: 'r_seed1',
-      ownerId: 'seed_owner1',
-      name: 'Restoran Wardini Ikan Bakar',
-      address: 'Taman Bendahara, 16100 Pengkalan Chepa, Kelantan',
-      phone: '09-000 0001',
-      email: 'wardini@restaurant.com',
-    ),
-    Restaurant(
-      id: 'r_seed2',
-      ownerId: 'seed_owner2',
-      name: 'Chil Garden Restaurant',
-      address: 'Lot 3633, Jln Tok Guru, Kampung Baung, 16100 Kota Bharu, Kelantan',
-      phone: '09-000 0002',
-      email: 'chil@restaurant.com',
-    ),
-  ];
+  final List<Restaurant> _restaurants = [];
 
-  final List<MenuItem> _menuItems = [
-    MenuItem(
-      id: 'm_seed1',
-      restaurantId: 'r_seed1',
-      name: 'Ikan Bakar Spesial',
-      price: 'RM 15.00',
-      description: 'Grilled fish marinated in aromatic spices.',
-      rating: 4.2,
-    ),
-    MenuItem(
-      id: 'm_seed2',
-      restaurantId: 'r_seed2',
-      name: 'Chil Garden Set',
-      price: 'RM 22.00',
-      description: 'Signature set with garden-fresh greens and grilled chicken.',
-      rating: 4.7,
-    ),
-  ];
+  final List<MenuItem> _menuItems = [];
 
   final List<Review> _reviews = [
     Review(
@@ -151,6 +121,10 @@ class AppState extends ChangeNotifier {
   AppUser? _currentUser;
   AppUser? get currentUser => _currentUser;
   bool get isLoggedIn => _currentUser != null;
+  void setCurrentUser(AppUser user) {
+  _currentUser = user;
+  notifyListeners();
+}
   bool get isOwner => _currentUser?.isOwner ?? false;
 
   // ── Getters ───────────────────────────────────────────────────────────────
@@ -265,6 +239,185 @@ class AppState extends ChangeNotifier {
     }
   }
 
+Future<void> loadRestaurants() async {
+
+  print("LOAD RESTAURANTS STARTED");
+
+  try {
+    final response = await http.get(
+      Uri.parse('http://localhost:5000/restaurants'),
+    );
+
+    print("STATUS CODE = ${response.statusCode}");
+    print("BODY = ${response.body}");
+
+    if (response.statusCode == 200) {
+
+      final List<dynamic> data = jsonDecode(response.body);
+
+      print("RESTAURANTS FOUND = ${data.length}");
+
+      _restaurants.clear();
+
+      for (var item in data) {
+        _restaurants.add(
+          Restaurant(
+            id: item['restaurant_id'].toString(),
+            ownerId: item['owner_id'].toString(),
+            name: item['name'],
+            address: item['address'],
+            phone: '',
+            email: '',
+          ),
+        );
+      }
+
+      print("TOTAL AFTER LOAD = ${_restaurants.length}");
+
+      notifyListeners();
+    }
+
+  } catch (e) {
+    print("LOAD RESTAURANTS ERROR = $e");
+  }
+}
+
+Future<void> loadMenuItems() async {
+  try {
+    final response = await http.get(
+      Uri.parse('http://127.0.0.1:5000/menu_items'),
+    );
+
+    print("MENU STATUS = ${response.statusCode}");
+    print("MENU BODY = ${response.body}");
+
+    if (response.statusCode == 200) {
+      final List<dynamic> data = jsonDecode(response.body);
+
+      _menuItems.clear();
+
+      for (var item in data) {
+
+        print(
+          "MENU ${item['menu_id']} IMAGE = ${item['image_path']}"
+        );
+        
+        _menuItems.add(
+          MenuItem(
+            id: item['menu_id'].toString(),
+            restaurantId: item['restaurant_id'].toString(),
+            name: item['item_name'],
+            price: 'RM ${item['price']}',
+            description: item['category'],
+            rating: 0,
+            imagePath: item['image_path'],
+          ),
+        );
+      }
+
+      print("TOTAL MENU ITEMS = ${_menuItems.length}");
+
+      notifyListeners();
+    }
+  } catch (e) {
+    print("MENU LOAD ERROR = $e");
+  }
+}
+
+Future<List<Review>> loadReviews(String restaurantId) async {
+  try {
+    final response = await http.get(
+      Uri.parse(
+        'http://127.0.0.1:5000/reviews/$restaurantId',
+      ),
+    );
+
+    if (response.statusCode == 200) {
+      print("Reviews API Response:");
+      print(response.body);
+      
+      final List<dynamic> data = jsonDecode(response.body);
+
+      return data.map((item) {
+        return Review(
+          id: item['review_id'].toString(),
+          restaurantId: restaurantId,
+          customerName: item['customer_name'],
+          stars: item['rating'],
+          text: item['comment'],
+          sentiment:
+            (item['sentiment'] ?? 'neutral')
+                .toString()
+                .toUpperCase(),
+        );
+      }).toList();
+    }
+  } catch (e) {
+    print('Review Load Error: $e');
+  }
+
+  return [];
+}
+
+Future<double> loadAverageRating(String restaurantId) async {
+  try {
+    print(
+  'http://127.0.0.1:5000/restaurant_rating/$restaurantId'
+);
+
+    final response = await http.get(
+      Uri.parse(
+        'http://127.0.0.1:5000/restaurant_rating/$restaurantId',
+      ),
+    );
+
+print(response.body);
+
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+
+      return (data['average_rating'] ?? 0).toDouble();
+    }
+  } catch (e) {
+    print('Average Rating Error: $e');
+  }
+
+  return 0;
+}
+
+Future<Map<String, double>> loadRestaurantMetrics(
+  String restaurantId,
+) async {
+  try {
+    final response = await http.get(
+      Uri.parse(
+        'http://127.0.0.1:5000/restaurant_metrics/$restaurantId',
+      ),
+    );
+
+    if (response.statusCode == 200) {
+
+      final data = jsonDecode(response.body);
+
+      return {
+        'food': (data['food'] ?? 0).toDouble(),
+        'service': (data['service'] ?? 0).toDouble(),
+        'price': (data['price'] ?? 0).toDouble(),
+        'cleanliness': (data['cleanliness'] ?? 0).toDouble(),
+      };
+    }
+  } catch (e) {
+    print("METRICS ERROR = $e");
+  }
+
+  return {
+    'food': 0,
+    'service': 0,
+    'price': 0,
+    'cleanliness': 0,
+  };
+}
+
   void logout() {
     _currentUser = null;
     notifyListeners();
@@ -320,9 +473,14 @@ class AppState extends ChangeNotifier {
     Uint8List? imageBytes,
     bool clearImage = false,
   }) {
+
+    print("EDIT MENU ITEM CALLED");
+
     final idx = _menuItems.indexWhere((m) => m.id == menuItemId);
     if (idx == -1) return;
     final old = _menuItems[idx];
+        print("OLD IMAGE = ${old.imagePath}");
+    print("NEW IMAGE BYTES = ${imageBytes != null}");
     _menuItems[idx] = MenuItem(
       id: old.id,
       restaurantId: old.restaurantId,
@@ -330,6 +488,9 @@ class AppState extends ChangeNotifier {
       price: price.trim(),
       description: description.trim(),
       rating: old.rating,
+      
+      imagePath: old.imagePath,
+
       imageBytes: clearImage ? null : (imageBytes ?? old.imageBytes),
     );
     notifyListeners();

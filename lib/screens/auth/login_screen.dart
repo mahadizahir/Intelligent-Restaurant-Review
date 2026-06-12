@@ -8,6 +8,8 @@ import '../../widgets/role_toggle.dart';
 import 'register_screen.dart';
 import '../customer/customer_home_screen.dart';
 import '../owner/owner_dashboard_screen.dart';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -29,27 +31,69 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
-  void _onSignIn() {
-    final state = context.read<AppState>();
-    final error = state.login(
-      email: _emailController.text,
-      password: _passwordController.text,
-      isOwner: !_isCustomer,
+  Future<void> _onSignIn() async {
+  try {
+    final response = await http.post(
+      Uri.parse('http://127.0.0.1:5000/login'),
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({
+        'email': _emailController.text.trim(),
+        'password': _passwordController.text.trim(),
+        'role': _isCustomer ? 'customer' : 'owner',
+      }),
     );
-    if (error != null) {
+
+    final data = jsonDecode(response.body);
+
+    print("LOGIN RESPONSE:");
+    print(data);
+
+    if (data['success'] == true) {
+
+  final state = context.read<AppState>();
+
+  state.setCurrentUser(
+  AppUser(
+    id: data['user_id'].toString(),
+    name: data['name'],
+    email: data['email'],
+    password: '',
+    isOwner: data['role'] == 'owner',
+    restaurantId: data['restaurant_id']?.toString(),
+    phone: data['phone'] ?? '',
+  ),
+);
+
+print("USER ID = ${state.currentUser?.id}");
+print("USER RESTAURANT ID = ${state.currentUser?.restaurantId}");
+
+  Navigator.pushReplacement(
+    context,
+    MaterialPageRoute(
+      builder: (_) => _isCustomer
+          ? const CustomerHomeScreen()
+          : const OwnerDashboardScreen(),
+    ),
+  );
+} else {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error), backgroundColor: Colors.red),
+        SnackBar(
+          content: Text(data['message']),
+          backgroundColor: Colors.red,
+        ),
       );
-      return;
     }
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(
-        builder: (_) =>
-            _isCustomer ? const CustomerHomeScreen() : const OwnerDashboardScreen(),
+  } catch (e) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Connection error: $e'),
+        backgroundColor: Colors.red,
       ),
     );
   }
+}
 
   void _goToRegister() {
     Navigator.pushReplacement(
@@ -129,7 +173,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
               if (_isCustomer) ...[
                 const SizedBox(height: 20),
-                Row(children: const [
+                const Row(children: [
                   Expanded(child: Divider()),
                   Padding(
                     padding: EdgeInsets.symmetric(horizontal: 12),

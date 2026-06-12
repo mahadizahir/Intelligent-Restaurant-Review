@@ -16,6 +16,15 @@ class CustomerHomeScreen extends StatefulWidget {
 class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
   String _search = '';
 
+  @override
+  void initState() {
+    super.initState();
+
+    Future.microtask(() {
+      context.read<AppState>().loadRestaurants();
+    });
+  }
+
   void _logout() {
     context.read<AppState>().logout();
     Navigator.pushReplacement(
@@ -159,10 +168,8 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                     itemCount: restaurants.length,
                     itemBuilder: (ctx, i) {
                       final r = restaurants[i];
-                      final avg = state.averageRatingFor(r.id);
                       return _RestaurantCard(
                         restaurant: r,
-                        avgRating: avg,
                         onTap: () => Navigator.push(
                           context,
                           MaterialPageRoute(
@@ -183,12 +190,10 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
 // ─────────────────────────────────────────────────────────────────────────────
 class _RestaurantCard extends StatelessWidget {
   final Restaurant restaurant;
-  final double avgRating;
   final VoidCallback onTap;
 
   const _RestaurantCard({
     required this.restaurant,
-    required this.avgRating,
     required this.onTap,
   });
 
@@ -214,22 +219,23 @@ class _RestaurantCard extends StatelessWidget {
           border: Border.all(color: AppColors.lightGrey),
           boxShadow: [
             BoxShadow(
-                color: Colors.black.withOpacity(0.05),
-                blurRadius: 6,
-                offset: const Offset(0, 2))
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 6,
+              offset: const Offset(0, 2),
+            ),
           ],
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Banner
             Container(
               height: 80,
               width: double.infinity,
               decoration: BoxDecoration(
                 color: _bannerColor(),
-                borderRadius:
-                    const BorderRadius.vertical(top: Radius.circular(12)),
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(12),
+                ),
               ),
               alignment: Alignment.center,
               child: Text(
@@ -239,50 +245,104 @@ class _RestaurantCard extends StatelessWidget {
                   color: AppColors.white,
                   fontWeight: FontWeight.bold,
                   fontSize: 13,
-                  shadows: [Shadow(color: Colors.black38, blurRadius: 4)],
+                  shadows: [
+                    Shadow(
+                      color: Colors.black38,
+                      blurRadius: 4,
+                    ),
+                  ],
                 ),
               ),
             ),
+
             Padding(
               padding: const EdgeInsets.all(14),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    mainAxisAlignment:
+                        MainAxisAlignment.spaceBetween,
                     children: [
                       Expanded(
-                          child: Text(restaurant.name,
-                              style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 14))),
-                      Row(children: [
-                        const Icon(Icons.star,
-                            color: AppColors.primary, size: 15),
-                        const SizedBox(width: 3),
-                        Text(
-                            avgRating > 0
-                                ? avgRating.toStringAsFixed(1)
-                                : '–',
-                            style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 13)),
-                      ]),
+                        child: Text(
+                          restaurant.name,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ),
+
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.star,
+                            color: AppColors.primary,
+                            size: 15,
+                          ),
+                          const SizedBox(width: 3),
+
+                          FutureBuilder<double>(
+                            future: context
+                                .read<AppState>()
+                                .loadAverageRating(
+                                  restaurant.id,
+                                ),
+                            builder:
+                                (context, snapshot) {
+                              if (!snapshot.hasData) {
+                                return const Text(
+                                  '-',
+                                  style: TextStyle(
+                                    fontWeight:
+                                        FontWeight.bold,
+                                    fontSize: 13,
+                                  ),
+                                );
+                              }
+
+                              return Text(
+                                snapshot.data!
+                                    .toStringAsFixed(1),
+                                style:
+                                    const TextStyle(
+                                  fontWeight:
+                                      FontWeight.bold,
+                                  fontSize: 13,
+                                ),
+                              );
+                            },
+                          ),
+                        ],
+                      ),
                     ],
                   ),
+
                   const SizedBox(height: 6),
+
                   Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Icon(Icons.location_on_outlined,
-                            color: AppColors.grey, size: 14),
-                        const SizedBox(width: 4),
-                        Expanded(
-                            child: Text(restaurant.address,
-                                style: const TextStyle(
-                                    color: AppColors.textMuted,
-                                    fontSize: 12))),
-                      ]),
+                    crossAxisAlignment:
+                        CrossAxisAlignment.start,
+                    children: [
+                      const Icon(
+                        Icons.location_on_outlined,
+                        color: AppColors.grey,
+                        size: 14,
+                      ),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          restaurant.address,
+                          style: const TextStyle(
+                            color:
+                                AppColors.textMuted,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ],
               ),
             ),

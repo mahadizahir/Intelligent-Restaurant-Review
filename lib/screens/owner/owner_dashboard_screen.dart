@@ -6,6 +6,7 @@ import '../../theme/app_colors.dart';
 import '../../screens/auth/register_screen.dart';
 import '../../screens/profile_screen.dart';
 import '../../widgets/image_helper.dart';
+import 'package:http/http.dart' as http;
 
 class OwnerDashboardScreen extends StatefulWidget {
   const OwnerDashboardScreen({super.key});
@@ -15,6 +16,59 @@ class OwnerDashboardScreen extends StatefulWidget {
 }
 
 class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
+  
+List<Review> _reviews = [];
+double _avgRating = 0.0;
+
+double _foodRating = 0.0;
+double _serviceRating = 0.0;
+double _priceRating = 0.0;
+double _cleanlinessRating = 0.0;
+
+ @override
+void initState() {
+  super.initState();
+
+  print("OWNER DASHBOARD OPENED");
+
+  WidgetsBinding.instance.addPostFrameCallback((_) async {
+
+    print("CALLING LOAD RESTAURANTS");
+
+    final state = context.read<AppState>();
+
+await state.loadRestaurants();
+
+await state.loadMenuItems();
+
+final restaurant = state.ownerRestaurant;
+
+if (restaurant != null) {
+
+  _reviews =
+      await state.loadReviews(restaurant.id);
+
+  _avgRating =
+      await state.loadAverageRating(restaurant.id);
+
+      final metrics =
+    await state.loadRestaurantMetrics(
+      restaurant.id,
+    );
+
+_foodRating = metrics['food']!;
+_serviceRating = metrics['service']!;
+_priceRating = metrics['price']!;
+_cleanlinessRating = metrics['cleanliness']!;
+
+  setState(() {});
+}
+
+    print(
+      "OWNER PAGE RESTAURANTS = ${context.read<AppState>().restaurants.length}"
+    );
+  });
+}
   int _selectedTab = 0;
   final List<String> _tabs = [
     'Recent Reviews',
@@ -138,31 +192,32 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
                                 ),
                               ],
                             )
-                          : Column(
-                              mainAxisAlignment:
-                                  MainAxisAlignment.center,
-                              children: [
-                                Icon(
-                                    Icons
-                                        .add_photo_alternate_outlined,
-                                    size: 52,
-                                    color: AppColors.grey
-                                        .withOpacity(0.65)),
-                                const SizedBox(height: 10),
-                                Text('Tap to add food photo',
-                                    style: TextStyle(
-                                        fontSize: 13,
-                                        color: AppColors.grey
-                                            .withOpacity(0.8))),
-                                const SizedBox(height: 4),
-                                Text(
-                                    'Gallery • Camera (mobile)',
-                                    style: TextStyle(
-                                        fontSize: 11,
-                                        color: AppColors.grey
-                                            .withOpacity(0.6))),
-                              ],
+                          : editItem?.imagePath != null &&
+                        editItem!.imagePath!.isNotEmpty
+                    ? Image.network(
+                        "http://127.0.0.1:5000/uploads/${editItem.imagePath}",
+                        fit: BoxFit.cover,
+                        width: double.infinity,
+                        height: double.infinity,
+                      )
+                    : Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.add_photo_alternate_outlined,
+                            size: 52,
+                            color: AppColors.grey.withOpacity(0.65),
+                          ),
+                          const SizedBox(height: 10),
+                          Text(
+                            'Tap to add food photo',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: AppColors.grey.withOpacity(0.8),
                             ),
+                          ),
+                        ],
+                      )
                     ),
                   ),
 
@@ -235,7 +290,7 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
                       ),
                       const SizedBox(width: 8),
                       ElevatedButton(
-                        onPressed: () {
+                        onPressed: () async {
                           if (nameCtrl.text.trim().isEmpty ||
                               priceCtrl.text.trim().isEmpty) {
                             ScaffoldMessenger.of(context)
@@ -255,6 +310,37 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
                               imageBytes: pickedBytes,
                             );
                           } else {
+                            if (pickedBytes != null) {
+
+                              var request = http.MultipartRequest(
+                                'POST',
+                                Uri.parse(
+                                  'http://127.0.0.1:5000/update_menu_image',
+                                ),
+                              );
+
+                              request.fields['menu_id'] = editItem.id;
+
+                              request.files.add(
+                                http.MultipartFile.fromBytes(
+                                  'image',
+                                  pickedBytes!,
+                                  filename: 'menu_${editItem.id}.jpg',
+                                ),
+                              );
+
+                              print("UPLOADING IMAGE...");
+                              print("MENU ID = ${editItem.id}");
+
+                              print("UPLOADING MENU ID = ${editItem.id}");
+
+                              var response = await request.send();
+
+                              print("UPLOAD STATUS = ${response.statusCode}");
+
+                              await st.loadMenuItems();
+                            }
+
                             st.editMenuItem(
                               menuItemId: editItem.id,
                               name: nameCtrl.text,
@@ -344,15 +430,17 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
     final state = context.watch<AppState>();
     final user = state.currentUser;
     final restaurant = state.ownerRestaurant;
-    final reviews = restaurant != null
-        ? state.reviewsFor(restaurant.id)
-        : <Review>[];
+
+    print("USER ID = ${state.currentUser?.id}");
+    print("USER RESTAURANT ID = ${state.currentUser?.restaurantId}");
+    print("TOTAL RESTAURANTS = ${state.restaurants.length}");
+    print("OWNER RESTAURANT = ${restaurant?.name}");
+
+    final reviews = _reviews;
     final menuItems = restaurant != null
         ? state.menuItemsFor(restaurant.id)
         : <MenuItem>[];
-    final avgRating = restaurant != null
-        ? state.averageRatingFor(restaurant.id)
-        : 0.0;
+    final avgRating = _avgRating;
 
     return Scaffold(
       backgroundColor: AppColors.backgroundGrey,
@@ -450,7 +538,12 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
                       avgRating: avgRating,
                       totalRatings: reviews.length),
                   const SizedBox(height: 8),
-                  _CategoryScoresCard(avgRating: avgRating),
+                  _CategoryScoresCard(
+                    food: _foodRating,
+                    service: _serviceRating,
+                    price: _priceRating,
+                    cleanliness: _cleanlinessRating,
+                  ),
                   const SizedBox(height: 8),
                   _AISummaryCard(reviews: reviews),
                   const SizedBox(height: 8),
@@ -564,20 +657,27 @@ class _RatingSummaryCard extends StatelessWidget {
 }
 
 class _CategoryScoresCard extends StatelessWidget {
-  final double avgRating;
-  const _CategoryScoresCard({required this.avgRating});
+  
+  final double food;
+  final double service;
+  final double price;
+  final double cleanliness;
+
+  const _CategoryScoresCard({
+    required this.food,
+    required this.service,
+    required this.price,
+    required this.cleanliness,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final scores = [
-      {'label': 'Food', 'value': (avgRating * 1.02).clamp(0.0, 5.0)},
-      {'label': 'Service', 'value': (avgRating * 0.6).clamp(0.0, 5.0)},
-      {'label': 'Price', 'value': (avgRating * 0.9).clamp(0.0, 5.0)},
-      {
-        'label': 'Cleanliness',
-        'value': (avgRating * 1.05).clamp(0.0, 5.0)
-      },
-    ];
+   final scores = [
+  {'label': 'Food', 'value': food},
+  {'label': 'Service', 'value': service},
+  {'label': 'Price', 'value': price},
+  {'label': 'Cleanliness', 'value': cleanliness},
+];
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: GridView.count(
@@ -837,6 +937,15 @@ class _MenuTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+
+      print("MENU TAB ITEMS = ${items.length}");
+
+  for (var item in items) {
+    print(
+      "DISPLAYING ${item.name} | imagePath=${item.imagePath}"
+    );
+  }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -881,11 +990,37 @@ class _MenuTab extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     // Food image (bytes)
-                    BytesImage(
-                      bytes: item.imageBytes,
-                      width: 70,
-                      height: 70,
+                    ClipRRect(
                       borderRadius: BorderRadius.circular(8),
+                      child: item.imagePath != null &&
+                              item.imagePath!.isNotEmpty
+                          ? Image.network(
+                              "http://127.0.0.1:5000/uploads/${item.imagePath}",
+                              width: 70,
+                              height: 70,
+                              fit: BoxFit.cover,
+
+                              loadingBuilder: (context, child, loadingProgress) {
+                                print("LOADING IMAGE = ${item.imagePath}");
+                                return child;
+                              },
+
+                              errorBuilder: (context, error, stackTrace) {
+                                print("IMAGE ERROR = $error");
+
+                                return Container(
+                                  width: 70,
+                                  height: 70,
+                                  color: Colors.red,
+                                );
+                              },
+                            )
+                          : Container(
+                              width: 70,
+                              height: 70,
+                              color: Colors.grey.shade200,
+                              child: const Icon(Icons.restaurant),
+                            ),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
