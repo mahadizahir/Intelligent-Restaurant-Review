@@ -434,7 +434,7 @@ class _OwnerStats extends StatelessWidget {
     final menuItems = state.menuItemsFor(restaurantId);
     final avg = state.averageRatingFor(restaurantId);
     final pos =
-        reviews.where((r) => r.sentiment == 'POSITIVE').length;
+      reviews.where((r) => r.sentiment.trim().toUpperCase() == 'POSITIVE').length;
 
     return Row(
       children: [

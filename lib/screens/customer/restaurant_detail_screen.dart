@@ -26,7 +26,7 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
     super.dispose();
   }
 
-  Future<void> _submitReview() async {
+  Future<Future<void>> _submitReview() async async {
     if (_reviewStars == 0) {
       ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Please select a star rating.')));
@@ -141,7 +141,9 @@ await state.loadRestaurants();
                           fontWeight: FontWeight.bold, fontSize: 15)),
                 ),
                 Row(children: [
-                  const Icon(Icons.star, color: AppColors.primary, size: 16),
+                  Icon(Icons.star,
+                      color: avg > 0 ? AppColors.primary : AppColors.grey,
+                      size: 16),
                   const SizedBox(width: 4),
                   
                   FutureBuilder<double>(
@@ -305,9 +307,11 @@ class _MenuTab extends StatelessWidget {
             borderRadius: BorderRadius.circular(12),
             border: Border.all(color: AppColors.lightGrey),
           ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // keep badge aligned to the top-right corner
+
               // ── Food image from bytes ──────────────────────────────────
               BytesImage(
                 bytes: item.imageBytes,
@@ -364,6 +368,178 @@ class _MenuTab extends StatelessWidget {
   }
 }
 
+// ── Rating summary card ───────────────────────────────────────────────────────
+class _RatingSummaryCard extends StatelessWidget {
+  final List<Review> reviews;
+  const _RatingSummaryCard({required this.reviews});
+
+  @override
+  Widget build(BuildContext context) {
+    final total = reviews.length;
+    final avg = total > 0
+        ? reviews.map((r) => r.stars).reduce((a, b) => a + b) / total
+        : 0.0;
+
+    // Count reviews per star (1–5)
+    final counts = List.generate(6, (_) => 0); // index 0 unused
+    for (final r in reviews) {
+      if (r.stars >= 1 && r.stars <= 5) counts[r.stars]++;
+    }
+
+    // Determine if we're on a narrow screen (mobile portrait)
+    final isNarrow = MediaQuery.of(context).size.width < 480;
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: AppColors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: isNarrow
+          ? Column(
+              children: [
+                // ── Average rating (centered on narrow screens) ──────
+                _buildAverageColumn(avg, total),
+                const SizedBox(height: 20),
+                // ── Distribution bars ─────────────────────────────────
+                _buildDistributionBars(counts, total),
+              ],
+            )
+          : Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // ── Average rating (left side on wider screens) ──────
+                _buildAverageColumn(avg, total),
+                const SizedBox(width: 32),
+                // ── Distribution bars (right side) ────────────────────
+                Expanded(child: _buildDistributionBars(counts, total)),
+              ],
+            ),
+    );
+  }
+
+  // ── Left side: average rating column ──────────────────────────────────────
+  Widget _buildAverageColumn(double avg, int total) {
+    return SizedBox(
+      width: 120,
+      child: Column(
+        children: [
+          Text(
+            avg > 0 ? avg.toStringAsFixed(1) : '0.0',
+            style: const TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 40,
+              color: AppColors.textDark,
+              height: 1.1,
+            ),
+          ),
+          const SizedBox(height: 6),
+          // Stars
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: List.generate(
+              5,
+              (i) => Padding(
+                padding: const EdgeInsets.only(right: 2),
+                child: Icon(
+                  avg > 0 && i < avg.round()
+                      ? Icons.star
+                      : Icons.star_border,
+                  color: avg > 0
+                      ? const Color(0xFFFFC107)
+                      : AppColors.grey,
+                  size: 20,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 4),
+          // Total count / empty label
+          Text(
+            total > 0 ? '$total rating${total == 1 ? '' : 's'}' : 'No ratings yet',
+            style: TextStyle(
+              fontSize: 12,
+              color: total > 0 ? AppColors.textMuted : AppColors.grey,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Right side: distribution bars ─────────────────────────────────────────
+  Widget _buildDistributionBars(List<int> counts, int total) {
+    return Column(
+      children: List.generate(5, (i) {
+        final star = 5 - i; // 5, 4, 3, 2, 1
+        final count = counts[star];
+        final fraction = total > 0 ? count / total : 0.0;
+
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Row(
+            children: [
+              // Star label
+              SizedBox(
+                width: 32,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    Text('$star',
+                        style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                            color: AppColors.textDark)),
+                    const SizedBox(width: 3),
+                    const Icon(Icons.star,
+                        size: 13, color: Color(0xFFFFC107)),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              // Progress bar
+              Expanded(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(6),
+                  child: LinearProgressIndicator(
+                    value: fraction,
+                    minHeight: 12,
+                    backgroundColor: AppColors.lightGrey,
+                    valueColor: const AlwaysStoppedAnimation<Color>(
+                        Color(0xFFFFC107)),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              // Count
+              SizedBox(
+                width: 30,
+                child: Text(
+                  '$count',
+                  textAlign: TextAlign.right,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textDark,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      }),
+    );
+  }
+}
+
 // ── Reviews tab ───────────────────────────────────────────────────────────────
 class _ReviewsTab extends StatelessWidget {
   final List<Review> reviews;
@@ -385,17 +561,27 @@ class _ReviewsTab extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Padding(
-          padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
-          child: Text('Customer Reviews',
-              style:
-                  TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('Customer Reviews',
+                  style:
+                      TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+              if (reviews.length > 1)
+                Text('${reviews.length} total',
+                    style: const TextStyle(
+                        fontSize: 12, color: AppColors.grey)),
+            ],
+          ),
         ),
+
+        // Rating summary card
+        _RatingSummaryCard(reviews: reviews),
 
         // Existing reviews
         ...reviews.map((r) {
-          final isPos = r.sentiment == 'POSITIVE';
-          final isNeg = r.sentiment == 'NEGATIVE';
           return Container(
             margin: const EdgeInsets.fromLTRB(16, 0, 16, 10),
             padding: const EdgeInsets.all(12),
@@ -435,18 +621,15 @@ class _ReviewsTab extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.symmetric(
                       horizontal: 10, vertical: 6),
+                  alignment: Alignment.topRight,
                   decoration: BoxDecoration(
                     color: AppColors.black,
                     borderRadius: BorderRadius.circular(6),
                   ),
                   child: Text(
-                    r.sentiment,
-                    style: TextStyle(
-                      color: isPos
-                          ? AppColors.white
-                          : isNeg
-                              ? Colors.redAccent
-                              : Colors.orangeAccent,
+                    r.sentiment.toUpperCase(),
+                    style: const TextStyle(
+                      color: AppColors.white,
                       fontWeight: FontWeight.bold,
                       fontSize: 10,
                     ),

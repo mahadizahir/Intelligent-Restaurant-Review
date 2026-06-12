@@ -1,6 +1,11 @@
 from flask import Flask, request, jsonify, send_from_directory
+from dotenv import load_dotenv
 import joblib
 import os
+
+load_dotenv("groq.env")
+
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 import pymysql
 from flask_cors import CORS
 
@@ -24,37 +29,44 @@ if not os.path.exists(UPLOAD_FOLDER):
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
+
+@app.after_request
+def add_cors_headers(response):
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+    return response
+
+
 MODEL_PATH = os.path.join(BASE_DIR, "sentiment_model.pkl")
 VECTORIZER_PATH = os.path.join(BASE_DIR, "vectorizer.pkl")
 
 model = joblib.load(MODEL_PATH)
 vectorizer = joblib.load(VECTORIZER_PATH)
 
+
 @app.route("/", methods=["GET"])
 def index():
     return jsonify({
-        "message": "Sentiment API is running",
+        "message": "Restaurant sentiment + Groq summary API is running",
         "status": "ok"
     })
 
+
 @app.route("/predict", methods=["POST"])
 def predict_sentiment():
-    data = request.get_json()
+    data = request.get_json(force=True)
 
-    if not data or "review" not in data:
-        return jsonify({
-            "error": "Missing 'review' field"
-        }), 400
+    reviews = data["reviews"]
 
-    review = data["review"]
-
-    review_vector = vectorizer.transform([review])
-    prediction = model.predict(review_vector)[0]
-
-    return jsonify({
-        "review": review,
-        "sentiment": prediction
-    })
+    results = []
+    for review in reviews:
+        review_vector = vectorizer.transform([review])
+        prediction = model.predict(review_vector)[0]
+        results.append({
+            "review": review,
+            "sentiment": prediction
+        })
 
 @app.route("/test_db", methods=["GET"])
 def test_db():
@@ -550,3 +562,4 @@ def debug_menu(menu_id):
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
+

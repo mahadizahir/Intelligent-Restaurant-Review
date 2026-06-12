@@ -1,0 +1,110 @@
+class _SentimentPiePainter extends CustomPainter {
+  final int positiveCount;
+  final int negativeCount;
+
+  _SentimentPiePainter({
+    required this.positiveCount,
+    required this.negativeCount,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = math.min(size.width, size.height) / 2;
+    final total = positiveCount + negativeCount;
+    final paint = Paint()..style = PaintingStyle.fill;
+
+    if (total == 0) {
+      paint.color = AppColors.lightGrey;
+      canvas.drawCircle(center, radius, paint);
+      final textSpan = TextSpan(
+        text: '0%',
+        style: const TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.bold,
+          fontSize: 18,
+        ),
+      );
+      final tp = TextPainter(
+        text: textSpan,
+        textAlign: TextAlign.center,
+        textDirection: TextDirection.ltr,
+      );
+      tp.layout();
+      tp.paint(canvas, Offset(center.dx - tp.width / 2, center.dy - tp.height / 2));
+      return;
+    }
+
+    final positiveAngle = (positiveCount / total) * 2 * math.pi;
+    final negativeAngle = (negativeCount / total) * 2 * math.pi;
+    final startAngle = -math.pi / 2;
+
+    paint.color = Colors.green;
+    canvas.drawArc(
+      Rect.fromCircle(center: center, radius: radius),
+      startAngle,
+      positiveAngle,
+      true,
+      paint,
+    );
+
+    paint.color = Colors.red;
+    canvas.drawArc(
+      Rect.fromCircle(center: center, radius: radius),
+      startAngle + positiveAngle,
+      negativeAngle,
+      true,
+      paint,
+    );
+
+    final positivePct = positiveCount / total * 100;
+    final negativePct = negativeCount / total * 100;
+
+    void drawLabel(double angle, String label) {
+      final labelRadius = radius * 0.6;
+      final offset = Offset(
+        center.dx + labelRadius * math.cos(angle),
+        center.dy + labelRadius * math.sin(angle),
+      );
+      final textSpan = TextSpan(
+        text: label,
+        style: const TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.bold,
+          fontSize: 14,
+        ),
+      );
+      final tp = TextPainter(
+        text: textSpan,
+        textAlign: TextAlign.center,
+        textDirection: TextDirection.ltr,
+      );
+      tp.layout();
+      tp.paint(canvas, Offset(offset.dx - tp.width / 2, offset.dy - tp.height / 2));
+    }
+
+    if (positiveCount > 0) {
+      drawLabel(startAngle + positiveAngle / 2,
+          '${positivePct.toStringAsFixed(1)}%');
+    }
+    if (negativeCount > 0) {
+      drawLabel(startAngle + positiveAngle + negativeAngle / 2,
+          '${negativePct.toStringAsFixed(1)}%');
+    }
+
+    canvas.drawCircle(
+      center,
+      radius,
+      Paint()
+        ..color = AppColors.lightGrey
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _SentimentPiePainter oldDelegate) {
+    return oldDelegate.positiveCount != positiveCount ||
+        oldDelegate.negativeCount != negativeCount;
+  }
+}

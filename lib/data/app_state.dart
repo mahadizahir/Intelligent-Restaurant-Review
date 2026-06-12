@@ -4,6 +4,9 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
+import 'host_helper.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 
@@ -503,31 +506,52 @@ Future<Map<String, double>> loadRestaurantMetrics(
 
   // ── Reviews ───────────────────────────────────────────────────────────────
 
-  String _autoSentiment(int stars, String text) {
-    if (stars >= 4) return 'POSITIVE';
-    if (stars <= 2) return 'NEGATIVE';
-    final lower = text.toLowerCase();
-    final pos = ['good', 'great', 'amazing', 'love', 'excellent', 'nice', 'best', 'delicious'];
-    final neg = ['bad', 'terrible', 'awful', 'worst', 'horrible', 'slow', 'cold', 'wrong'];
-    final p = pos.where((w) => lower.contains(w)).length;
-    final n = neg.where((w) => lower.contains(w)).length;
-    if (p > n) return 'POSITIVE';
-    if (n > p) return 'NEGATIVE';
+  static String get _sentimentApiUrl => getSentimentApiUrl();
+
+  String _fallbackSentiment() {
+    // We want to use the trained ML model for sentiment, not hardcoded keywords.
+    // If the model server is unreachable, return a neutral placeholder.
     return 'NEUTRAL';
   }
 
-  void addReview({
+  Future<String> _predictSentimentWithModel(String text) async {
+    final uri = Uri.parse(_sentimentApiUrl);
+    final response = await http.post(
+      uri,
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'reviews': [text]}),
+    );
+
+    if (response.statusCode != 200) {
+      throw Exception('Sentiment API error: ${response.statusCode}');
+    }
+
+    final body = jsonDecode(response.body);
+    if (body is List && body.isNotEmpty && body[0]['sentiment'] != null) {
+      return body[0]['sentiment'] as String;
+    }
+    throw Exception('Invalid sentiment API response');
+  }
+
+  Future<void> addReview({
     required String restaurantId,
     required int stars,
     required String text,
-  }) {
+  }) async {
+    String sentiment;
+    try {
+      sentiment = await _predictSentimentWithModel(text);
+    } catch (_) {
+      sentiment = _fallbackSentiment();
+    }
+
     _reviews.add(Review(
       id: 'rv_${DateTime.now().millisecondsSinceEpoch}',
       restaurantId: restaurantId,
       customerName: _currentUser?.name ?? 'Guest',
       stars: stars,
       text: text.trim(),
-      sentiment: _autoSentiment(stars, text),
+      sentiment: sentiment,
     ));
     notifyListeners();
   }
