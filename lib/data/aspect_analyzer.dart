@@ -24,15 +24,23 @@ const _PRICE_KEYWORDS = {
 };
 
 const _CLEANLINESS_KEYWORDS = {
-  'toilet', 'washroom', 'bathroom', 'restroom',
-  'table', 'chair', 'floor', 'kitchen', 'utensil',
-  'kebersihan', 'tandas', 'lantai', 'meja', 'kerusi',
-  'pinggan', 'cawan', 'gelas', 'sudu', 'garfu',
-  'premis', 'kedai', 'restoran', 'cafe',
-  'kotor', 'bersih', 'berbau', 'busuk', 'sampah', 'habuk',
-  // Place words — only when paired with cleanliness sentiment
-  'place', 'tempat', 'dining',
+  // Strong/explicit cleanliness & hygiene triggers only.
+  'bersih',
+  'kotor',
+  'tandas',
+  'toilet',
+  'busuk',
+  'berbau',
+  'sampah',
+  'meja',
+  'lantai',
+  'pinggan',
+  'cawan',
+  'lipas',
+  'tikus',
+  'lalat',
 };
+
 
 // ── Positive sentiment keywords ────────────────────────────────────────────
 const _POSITIVE_WORDS = {
@@ -84,12 +92,35 @@ double? _scoreReview(String text) {
   final tokens = _tokenize(text);
   int posCount = 0;
   int negCount = 0;
-  for (final token in tokens) {
-    if (_POSITIVE_WORDS.contains(token)) posCount++;
-    if (_NEGATIVE_WORDS.contains(token)) negCount++;
+
+  // Negation handling: if a negation word appears immediately before a
+  // positive keyword, treat it as negative sentiment.
+  const negations = {'tak', 'tidak', 'bukan', 'kurang'};
+
+  for (int i = 0; i < tokens.length; i++) {
+    final token = tokens[i];
+
+    // Explicit negative keywords always count as negative.
+    if (_NEGATIVE_WORDS.contains(token)) {
+      negCount++;
+      continue;
+    }
+
+    // Positive keywords are overridden by negation when negation comes
+    // immediately before the positive keyword.
+    if (_POSITIVE_WORDS.contains(token)) {
+      final prev = i > 0 ? tokens[i - 1] : '';
+      if (negations.contains(prev)) {
+        negCount++;
+      } else {
+        posCount++;
+      }
+      continue;
+    }
   }
+
   if (posCount == 0 && negCount == 0) return null; // no data
-  
+
   final net = posCount - negCount;
   if (net > 0) {
     // Positive: scale from 3.0 to 5.0 based on strength
@@ -103,6 +134,7 @@ double? _scoreReview(String text) {
     return 2.5;
   }
 }
+
 
 /// Result for a single aspect across all reviews.
 class AspectResult {
@@ -121,65 +153,90 @@ class AspectResult {
 
 /// Analyze all reviews and return aggregated results per aspect.
 ///
-/// Rules:
-/// - Only score aspects that are explicitly mentioned in each review.
-/// - Each aspect is scored independently using sentiment keywords only.
-/// - Overall star rating is NEVER used for aspect scoring.
-/// - If no reviews mention an aspect, hasData = false.
-/// - If a review mentions an aspect but has no sentiment words, it's skipped.
+/// Requirements:
+/// - Must use the exact same aspect detection as the bottom sheet.
+///   => Use filterReviewsByAspect(reviews, aspectKey).
+/// - N/A only when there are zero reviews mentioning the aspect.
+/// - Score calculation uses sentiment keywords:
+///   positive = 5
+///   neutral  = 3
+///   negative = 1
 List<AspectResult> analyzeCategoryScores(List<Review> reviews) {
-  // Track scores per aspect — ONLY when that aspect is mentioned
-  final Map<String, List<double>> aspectScores = {};
-
-  for (final review in reviews) {
-    final mentioned = _detectAspects(review.text);
-    if (mentioned.isEmpty) continue;
-
-    for (final aspect in mentioned) {
-      // Score this aspect independently using ONLY the review text
-      final score = _scoreReview(review.text);
-      if (score == null) continue; // no sentiment data for this review
-
-      if (!aspectScores.containsKey(aspect)) {
-        aspectScores[aspect] = [];
-      }
-      aspectScores[aspect]!.add(score);
-    }
-  }
-
-  final labels = {
+  final labels = const {
     'food': 'Food',
     'service': 'Service',
     'price': 'Price',
     'cleanliness': 'Cleanliness',
   };
 
-  final results = <AspectResult>[];
-  for (final entry in labels.entries) {
-    final key = entry.key;
-    final label = entry.value;
-    final scores = aspectScores[key];
+  double _mapToRequiredScale(double score5Scale) {
+    // _scoreReview() outputs approximately:
+    // - negative: 0.0..2.0
+    // - neutral: 2.5
+    // - positive: 3.0..5.0
+    if (score5Scale >= 3.0 && score5Scale <= 5.0) return 5.0;
+    if (score5Scale == 2.5) return 3.0;
+    if (score5Scale < 2.5) return 1.0;
+    return 3.0;
+  }
 
-    if (scores == null || scores.isEmpty) {
-      results.add(AspectResult(
-        label: label,
-        avgScore: 0.0,
-        hasData: false,
-        count: 0,
-      ));
-    } else {
-      final avg = scores.reduce((a, b) => a + b) / scores.length;
-      results.add(AspectResult(
+  final results = <AspectResult>[];
+
+  for (final entry in labels.entries) {
+    final aspectKey = entry.key;
+    final label = entry.value;
+
+    // Must share the same detection logic as bottom sheet.
+    final relatedReviews = filterReviewsByAspect(reviews, aspectKey);
+
+    if (relatedReviews.isEmpty) {
+      results.add(
+        AspectResult(
+          label: label,
+          avgScore: 0.0,
+          hasData: false,
+          count: 0,
+        ),
+      );
+      continue;
+    }
+
+    final aspectScores = <double>[];
+    for (final r in relatedReviews) {
+      final raw = _scoreReview(r.text);
+      if (raw == null) continue; // no sentiment data; skip
+      aspectScores.add(_mapToRequiredScale(raw));
+    }
+
+    // If we detected aspect mentions but none had sentiment keywords,
+    // treat as no data.
+    if (aspectScores.isEmpty) {
+      results.add(
+        AspectResult(
+          label: label,
+          avgScore: 0.0,
+          hasData: false,
+          count: 0,
+        ),
+      );
+      continue;
+    }
+
+    final avg = aspectScores.reduce((a, b) => a + b) / aspectScores.length;
+
+    results.add(
+      AspectResult(
         label: label,
         avgScore: avg.clamp(0.0, 5.0),
         hasData: true,
-        count: scores.length,
-      ));
-    }
+        count: aspectScores.length,
+      ),
+    );
   }
 
   return results;
 }
+
 
 /// Filter reviews that mention a specific aspect.
 List<Review> filterReviewsByAspect(List<Review> reviews, String aspectKey) {
@@ -211,7 +268,9 @@ Widget buildHighlightedReviewText(String text, {String? aspectKey}) {
   final children = <InlineSpan>[];
   int lastEnd = 0;
 
-  for (final match in matches) {
+  for (int mIndex = 0; mIndex < matches.length; mIndex++) {
+    final match = matches[mIndex];
+
     // Add any non-word text before this word (spaces, punctuation)
     if (match.start > lastEnd) {
       children.add(TextSpan(text: text.substring(lastEnd, match.start)));
@@ -243,14 +302,27 @@ Widget buildHighlightedReviewText(String text, {String? aspectKey}) {
 
     // Sentiment keyword check (only if not already highlighted as aspect)
     if (chipBg == null) {
-      if (_POSITIVE_WORDS.contains(wordLower)) {
-        chipBg = const Color(0xFFDFF5E1);
-        chipTextColor = const Color(0xFF2E7D32);
-      } else if (_NEGATIVE_WORDS.contains(wordLower)) {
+      // Negation handling for highlighting:
+      // if a negation word appears immediately before a positive keyword,
+      // highlight the positive keyword as NEGATIVE.
+      const negations = {'tak', 'tidak', 'bukan', 'kurang'};
+
+      final prevWordLower =
+          (mIndex > 0 && match.start > 0) ? _tokenize(text.substring(0, match.start)).lastOrNull : null;
+      final isNegatedPositive = prevWordLower != null &&
+          negations.contains(prevWordLower) &&
+          _POSITIVE_WORDS.contains(wordLower);
+
+
+      if (_NEGATIVE_WORDS.contains(wordLower) || isNegatedPositive) {
         chipBg = const Color(0xFFFDE2E2);
         chipTextColor = const Color(0xFFC62828);
+      } else if (_POSITIVE_WORDS.contains(wordLower)) {
+        chipBg = const Color(0xFFDFF5E1);
+        chipTextColor = const Color(0xFF2E7D32);
       }
     }
+
 
     if (chipBg != null) {
       // Rounded chip-style highlight using WidgetSpan

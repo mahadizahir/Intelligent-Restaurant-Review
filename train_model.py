@@ -10,7 +10,7 @@ import joblib
 df1 = pd.read_csv("cleaned_reviews.csv")
 df1 = df1.rename(columns={"review_text": "text"})
 
-df2 = pd.read_csv("restaurantdatasetenglish_clean.csv")
+df2 = pd.read_csv("restaurantdatasetenglish_clean.csv", on_bad_lines='skip')
 
 # Combine datasets
 df = pd.concat([df1, df2], ignore_index=True)
