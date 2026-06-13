@@ -35,22 +35,83 @@ def index():
     })
 
 
+from aspect_analyzer import analyze_aspects
+
+
 @app.route("/predict", methods=["POST"])
 def predict_sentiment():
-    data = request.get_json(force=True)
+    """Return both overall sentiment (ML) + per-aspect sentiment (rule-based).
+
+    Expected JSON body:
+      {"reviews": ["text1", "text2"]}
+
+    Returns JSON array where each item contains:
+      {
+        "review": "...",
+        "sentiment": "positive|negative|neutral",
+        "aspects": {"food": ..., "service": ..., "price": ..., "cleanliness": ...},
+        "confidence": <float|null>
+      }
+    """
+
+    data = request.get_json(force=True) or {}
+
+    if "reviews" not in data:
+        return jsonify({"error": "Missing 'reviews'"}), 400
 
     reviews = data["reviews"]
+    if isinstance(reviews, str):
+        reviews = [reviews]
+
+    if not isinstance(reviews, list):
+        return jsonify({"error": "'reviews' must be a string or list of strings"}), 400
 
     results = []
+
     for review in reviews:
+        if review is None:
+            return jsonify({"error": "Review item is null"}), 400
+        if not isinstance(review, str):
+            return jsonify({"error": "Review item must be a string"}), 400
+
+        review = review.strip()
+        if not review:
+            return jsonify({"error": "Review item is empty"}), 400
+
+        # Debug prints (needed to trace frontend/backend mismatch)
+        print("[DEBUG] /predict review=", review)
+
         review_vector = vectorizer.transform([review])
         prediction = model.predict(review_vector)[0]
+        print("[DEBUG] /predict prediction=", prediction)
+
+        # Confidence score (best effort)
+        confidence = None
+        if hasattr(model, "predict_proba"):
+            try:
+                probs = model.predict_proba(review_vector)[0]
+                classes = list(getattr(model, "classes_", []))
+                print("[DEBUG] /predict probs=", probs)
+                if classes and prediction in classes:
+                    confidence = float(probs[classes.index(prediction)])
+                else:
+                    confidence = float(max(probs))
+            except Exception as e:
+                print("[DEBUG] /predict confidence failed=", repr(e))
+                confidence = None
+
+        aspects = analyze_aspects(review)
+
         results.append({
             "review": review,
-            "sentiment": prediction
+            "sentiment": prediction,
+            "aspects": aspects,
+            "confidence": confidence,
         })
 
+    print("[DEBUG] /predict response=", results)
     return jsonify(results)
+
 
 
 @app.route("/groq/summary", methods=["POST"])

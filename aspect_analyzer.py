@@ -606,3 +606,7 @@ if __name__ == '__main__':
 
     print("\n" + "=" * 70)
     print("DONE — all tests passed")
+
+    print(
+    analyze_aspects("the place is dirty")
+)
