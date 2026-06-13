@@ -7,12 +7,12 @@
             },
             "ssh": "Disabled",
             "previewLimit": 50,
-            "server": "localhost",
+            "server": "127.0.0.1",
             "port": 3306,
             "driver": "MariaDB",
-            "name": "RESTAURANT",
-            "database": "RESTAURANT",
+            "name": "my_restaurant_clean",
             "username": "root",
+            "database": "my_restaurant_clean",
             "password": ""
         }
     ]

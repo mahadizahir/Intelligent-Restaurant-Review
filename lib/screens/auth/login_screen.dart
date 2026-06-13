@@ -29,19 +29,23 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
-  void _onSignIn() {
+  Future<void> _onSignIn() async {
     final state = context.read<AppState>();
-    final error = state.login(
+    final error = await state.login(
       email: _emailController.text,
       password: _passwordController.text,
       isOwner: !_isCustomer,
     );
+
+    if (!mounted) return;
+
     if (error != null) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(error), backgroundColor: Colors.red),
       );
       return;
     }
+
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(

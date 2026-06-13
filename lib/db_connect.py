@@ -1,23 +1,26 @@
 import mysql.connector
 
-# Connect to MariaDB/MySQL
-conn = mysql.connector.connect(
-    host="127.0.0.1",
-    port=3306,
-    user="root",
-    password="",
-    database="RESTAURANT"
-)
+try:
+    conn = mysql.connector.connect(
+        host="127.0.0.1",
+        port=3306,
+        user="root",
+        password="",
+        database="my_restaurant_clean"
+    )
 
-# Create cursor
-cursor = conn.cursor()
+    cursor = conn.cursor()
+    cursor.execute("SHOW TABLES")
 
-# Test query
-cursor.execute("SHOW TABLES")
+    print("✅ Database connected successfully")
+    print("Tables:")
 
-# Print tables
-for table in cursor:
-    print(table)
+    for table in cursor:
+        print(table[0])
 
-# Close connection
-conn.close()
+    cursor.close()
+    conn.close()
+
+except Exception as e:
+    print("❌ Database connection failed")
+    print(e)

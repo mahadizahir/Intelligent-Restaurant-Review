@@ -1,11 +1,13 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// APP STATE  –  single source of truth (no Firebase, pure in-memory)
-// Images stored as Uint8List bytes → works on Web + Mobile
+// APP STATE – connected to Flask API + MySQL database
+// Flutter → Flask API → MySQL/phpMyAdmin
 // ─────────────────────────────────────────────────────────────────────────────
+import 'dart:convert';
 import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-import 'dart:convert';
+
 import 'host_helper.dart';
 
 // ── Models ───────────────────────────────────────────────────────────────────
@@ -18,7 +20,7 @@ class AppUser {
   final bool isOwner;
   final String? restaurantId;
   String phone;
-  Uint8List? avatarBytes; // profile photo bytes
+  Uint8List? avatarBytes;
 
   AppUser({
     required this.id,
@@ -39,6 +41,8 @@ class Restaurant {
   String address;
   String phone;
   String email;
+  double averageRating;
+  int totalReviews;
 
   Restaurant({
     required this.id,
@@ -47,6 +51,8 @@ class Restaurant {
     required this.address,
     required this.phone,
     required this.email,
+    this.averageRating = 0.0,
+    this.totalReviews = 0,
   });
 }
 
@@ -57,7 +63,7 @@ class MenuItem {
   String price;
   String description;
   double rating;
-  Uint8List? imageBytes; // food photo bytes — works on Web + Mobile
+  Uint8List? imageBytes;
 
   MenuItem({
     required this.id,
@@ -92,71 +98,22 @@ class Review {
 
 class AppState extends ChangeNotifier {
   final List<AppUser> _users = [];
+  final List<Restaurant> _restaurants = [];
+  final List<MenuItem> _menuItems = [];
+  final List<Review> _reviews = [];
 
-  final List<Restaurant> _restaurants = [
-    Restaurant(
-      id: 'r_seed1',
-      ownerId: 'seed_owner1',
-      name: 'Restoran Wardini Ikan Bakar',
-      address: 'Taman Bendahara, 16100 Pengkalan Chepa, Kelantan',
-      phone: '09-000 0001',
-      email: 'wardini@restaurant.com',
-    ),
-    Restaurant(
-      id: 'r_seed2',
-      ownerId: 'seed_owner2',
-      name: 'Chil Garden Restaurant',
-      address: 'Lot 3633, Jln Tok Guru, Kampung Baung, 16100 Kota Bharu, Kelantan',
-      phone: '09-000 0002',
-      email: 'chil@restaurant.com',
-    ),
-  ];
+  AppState() {
+    loadRestaurants();
+  }
 
-  final List<MenuItem> _menuItems = [
-    MenuItem(
-      id: 'm_seed1',
-      restaurantId: 'r_seed1',
-      name: 'Ikan Bakar Spesial',
-      price: 'RM 15.00',
-      description: 'Grilled fish marinated in aromatic spices.',
-      rating: 4.2,
-    ),
-    MenuItem(
-      id: 'm_seed2',
-      restaurantId: 'r_seed2',
-      name: 'Chil Garden Set',
-      price: 'RM 22.00',
-      description: 'Signature set with garden-fresh greens and grilled chicken.',
-      rating: 4.7,
-    ),
-  ];
+  static String get _apiBaseUrl => getApiBaseUrl();
+  static String get _sentimentApiUrl => getSentimentApiUrl();
 
-  final List<Review> _reviews = [
-    Review(
-      id: 'rv_seed1',
-      restaurantId: 'r_seed1',
-      customerName: 'Guest',
-      stars: 4,
-      text: 'Fresh fish and great service!',
-      sentiment: 'POSITIVE',
-    ),
-    Review(
-      id: 'rv_seed2',
-      restaurantId: 'r_seed2',
-      customerName: 'Guest',
-      stars: 5,
-      text: 'Amazing ambience and food.',
-      sentiment: 'POSITIVE',
-    ),
-  ];
-
-  // ── Session ───────────────────────────────────────────────────────────────
   AppUser? _currentUser;
   AppUser? get currentUser => _currentUser;
   bool get isLoggedIn => _currentUser != null;
   bool get isOwner => _currentUser?.isOwner ?? false;
 
-  // ── Getters ───────────────────────────────────────────────────────────────
   List<Restaurant> get restaurants => List.unmodifiable(_restaurants);
 
   List<MenuItem> menuItemsFor(String restaurantId) =>
@@ -168,8 +125,7 @@ class AppState extends ChangeNotifier {
   Restaurant? get ownerRestaurant {
     if (_currentUser == null || !_currentUser!.isOwner) return null;
     try {
-      return _restaurants
-          .firstWhere((r) => r.id == _currentUser!.restaurantId);
+      return _restaurants.firstWhere((r) => r.id == _currentUser!.restaurantId);
     } catch (_) {
       return null;
     }
@@ -177,94 +133,237 @@ class AppState extends ChangeNotifier {
 
   double averageRatingFor(String restaurantId) {
     final reviews = reviewsFor(restaurantId);
-    if (reviews.isEmpty) return 0.0;
-    return reviews.map((r) => r.stars).reduce((a, b) => a + b) /
-        reviews.length;
+    if (reviews.isNotEmpty) {
+      return reviews.map((r) => r.stars).reduce((a, b) => a + b) /
+          reviews.length;
+    }
+    try {
+      return _restaurants.firstWhere((r) => r.id == restaurantId).averageRating;
+    } catch (_) {
+      return 0.0;
+    }
+  }
+
+  // ── Helpers ────────────────────────────────────────────────────────────────
+
+  double _toDouble(dynamic value) {
+    if (value == null) return 0.0;
+    if (value is num) return value.toDouble();
+    return double.tryParse(value.toString()) ?? 0.0;
+  }
+
+  int _toInt(dynamic value) {
+    if (value == null) return 0;
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse(value.toString()) ?? 0;
+  }
+
+  String _formatPrice(dynamic value) {
+    final text = value?.toString().trim() ?? '0.00';
+    if (text.toUpperCase().startsWith('RM')) return text;
+    return 'RM $text';
+  }
+
+  String _responseError(http.Response response) {
+    try {
+      final body = jsonDecode(response.body);
+      if (body is Map && body['error'] != null) return body['error'].toString();
+      if (body is Map && body['message'] != null) return body['message'].toString();
+    } catch (_) {}
+    return 'Server error: ${response.statusCode}';
+  }
+
+  AppUser _parseUser(Map<String, dynamic> json, String password) {
+    final isOwner = json['isOwner'] == true || json['role'] == 'owner';
+    return AppUser(
+      id: json['id']?.toString() ?? '',
+      name: json['name']?.toString() ?? '',
+      email: json['email']?.toString() ?? '',
+      password: password,
+      isOwner: isOwner,
+      restaurantId: json['restaurantId']?.toString(),
+      phone: json['phone']?.toString() ?? '',
+    );
+  }
+
+  Restaurant _parseRestaurant(Map<String, dynamic> json) {
+    return Restaurant(
+      id: json['id']?.toString() ?? '',
+      ownerId: json['owner_id']?.toString() ?? json['ownerId']?.toString() ?? '',
+      name: json['name']?.toString() ?? '',
+      address: json['address']?.toString() ?? '',
+      phone: json['phone']?.toString() ?? '',
+      email: json['email']?.toString() ?? '',
+      averageRating: _toDouble(json['average_rating'] ?? json['averageRating']),
+      totalReviews: _toInt(json['total_reviews'] ?? json['totalReviews']),
+    );
+  }
+
+  MenuItem _parseMenuItem(Map<String, dynamic> json) {
+    return MenuItem(
+      id: json['id']?.toString() ?? '',
+      restaurantId:
+          json['restaurant_id']?.toString() ?? json['restaurantId']?.toString() ?? '',
+      name: json['name']?.toString() ?? '',
+      price: _formatPrice(json['price']),
+      description: json['description']?.toString() ?? '',
+      rating: _toDouble(json['rating']),
+    );
+  }
+
+  Review _parseReview(Map<String, dynamic> json) {
+    return Review(
+      id: json['id']?.toString() ?? '',
+      restaurantId:
+          json['restaurant_id']?.toString() ?? json['restaurantId']?.toString() ?? '',
+      customerName: json['customer_name']?.toString() ??
+          json['customerName']?.toString() ??
+          'Guest',
+      stars: _toInt(json['rating'] ?? json['stars']),
+      text: json['comment']?.toString() ?? json['text']?.toString() ?? '',
+      sentiment: (json['sentiment']?.toString() ?? 'neutral').toUpperCase(),
+    );
+  }
+
+  // ── Load data from database ────────────────────────────────────────────────
+
+  Future<void> loadRestaurants() async {
+    try {
+      final response = await http.get(Uri.parse('$_apiBaseUrl/restaurants'));
+      if (response.statusCode != 200) return;
+
+      final body = jsonDecode(response.body);
+      if (body is! List) return;
+
+      _restaurants
+        ..clear()
+        ..addAll(body
+            .whereType<Map>()
+            .map((e) => _parseRestaurant(Map<String, dynamic>.from(e))));
+
+      for (final r in _restaurants) {
+        await loadRestaurantDetails(r.id, notify: false);
+      }
+
+      notifyListeners();
+    } catch (_) {
+      // Keep app usable even if API is temporarily offline.
+    }
+  }
+
+  Future<void> loadRestaurantDetails(String restaurantId,
+      {bool notify = true}) async {
+    try {
+      final menuResponse =
+          await http.get(Uri.parse('$_apiBaseUrl/restaurants/$restaurantId/menu'));
+      if (menuResponse.statusCode == 200) {
+        final body = jsonDecode(menuResponse.body);
+        if (body is List) {
+          _menuItems.removeWhere((m) => m.restaurantId == restaurantId);
+          _menuItems.addAll(body
+              .whereType<Map>()
+              .map((e) => _parseMenuItem(Map<String, dynamic>.from(e))));
+        }
+      }
+
+      final reviewResponse = await http
+          .get(Uri.parse('$_apiBaseUrl/restaurants/$restaurantId/reviews'));
+      if (reviewResponse.statusCode == 200) {
+        final body = jsonDecode(reviewResponse.body);
+        if (body is List) {
+          _reviews.removeWhere((r) => r.restaurantId == restaurantId);
+          _reviews.addAll(body
+              .whereType<Map>()
+              .map((e) => _parseReview(Map<String, dynamic>.from(e))));
+        }
+      }
+
+      if (notify) notifyListeners();
+    } catch (_) {}
   }
 
   // ── Auth ──────────────────────────────────────────────────────────────────
 
-  String? register({
+  Future<String?> register({
     required String name,
     required String email,
     required String password,
     required bool isOwner,
     String address = '',
     String phone = '',
-  }) {
+  }) async {
     final trimEmail = email.trim().toLowerCase();
     if (name.trim().isEmpty) return 'Name cannot be empty.';
     if (trimEmail.isEmpty) return 'Email cannot be empty.';
     if (password.length < 6) return 'Password must be at least 6 characters.';
-    if (_users.any((u) => u.email.toLowerCase() == trimEmail)) {
-      return 'An account with this email already exists.';
-    }
 
-    String? restaurantId;
-
-    if (isOwner) {
-      final rid = 'r_${DateTime.now().millisecondsSinceEpoch}';
-      final uid = 'u_${DateTime.now().millisecondsSinceEpoch}';
-      _restaurants.add(Restaurant(
-        id: rid,
-        ownerId: uid,
-        name: name.trim(),
-        address: address.trim().isNotEmpty
-            ? address.trim()
-            : 'Address not set – update in profile',
-        phone: phone.trim().isNotEmpty ? phone.trim() : '-',
-        email: trimEmail,
-      ));
-      restaurantId = rid;
-
-      final user = AppUser(
-        id: uid,
-        name: name.trim(),
-        email: trimEmail,
-        password: password,
-        isOwner: true,
-        restaurantId: restaurantId,
-        phone: phone.trim(),
+    try {
+      final response = await http.post(
+        Uri.parse('$_apiBaseUrl/auth/register'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'name': name.trim(),
+          'email': trimEmail,
+          'password': password,
+          'isOwner': isOwner,
+          'address': address.trim(),
+          'phone': phone.trim(),
+        }),
       );
-      _users.add(user);
-      _currentUser = user;
+
+      if (response.statusCode != 201) return _responseError(response);
+
+      final body = jsonDecode(response.body);
+      final userJson = Map<String, dynamic>.from(body['user']);
+      _currentUser = _parseUser(userJson, password);
+      _users.removeWhere((u) => u.id == _currentUser!.id);
+      _users.add(_currentUser!);
+
+      await loadRestaurants();
       notifyListeners();
       return null;
+    } catch (e) {
+      return 'Cannot connect to server. Make sure Flask API is running.';
     }
-
-    final uid = 'u_${DateTime.now().millisecondsSinceEpoch}';
-    final user = AppUser(
-      id: uid,
-      name: name.trim(),
-      email: trimEmail,
-      password: password,
-      isOwner: false,
-      phone: phone.trim(),
-    );
-    _users.add(user);
-    _currentUser = user;
-    notifyListeners();
-    return null;
   }
 
-  String? login({
+  Future<String?> login({
     required String email,
     required String password,
     required bool isOwner,
-  }) {
+  }) async {
     final trimEmail = email.trim().toLowerCase();
+    if (trimEmail.isEmpty) return 'Email cannot be empty.';
+    if (password.isEmpty) return 'Password cannot be empty.';
+
     try {
-      final user = _users.firstWhere(
-        (u) =>
-            u.email.toLowerCase() == trimEmail &&
-            u.password == password &&
-            u.isOwner == isOwner,
+      final response = await http.post(
+        Uri.parse('$_apiBaseUrl/auth/login'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'email': trimEmail,
+          'password': password,
+          'isOwner': isOwner,
+        }),
       );
-      _currentUser = user;
+
+      if (response.statusCode != 200) return _responseError(response);
+
+      final body = jsonDecode(response.body);
+      final userJson = Map<String, dynamic>.from(body['user']);
+      _currentUser = _parseUser(userJson, password);
+      _users.removeWhere((u) => u.id == _currentUser!.id);
+      _users.add(_currentUser!);
+
+      await loadRestaurants();
+      if (_currentUser!.restaurantId != null) {
+        await loadRestaurantDetails(_currentUser!.restaurantId!);
+      }
       notifyListeners();
       return null;
-    } catch (_) {
-      return 'Invalid email, password, or account type.';
+    } catch (e) {
+      return 'Cannot connect to server. Make sure Flask API is running.';
     }
   }
 
@@ -285,10 +384,9 @@ class AppState extends ChangeNotifier {
     _currentUser!.phone = phone.trim();
     if (avatarBytes != null) _currentUser!.avatarBytes = avatarBytes;
 
-    // If owner, also update restaurant name
     if (_currentUser!.isOwner) {
-      final idx = _restaurants
-          .indexWhere((r) => r.id == _currentUser!.restaurantId);
+      final idx =
+          _restaurants.indexWhere((r) => r.id == _currentUser!.restaurantId);
       if (idx != -1) _restaurants[idx].name = name.trim();
     }
     notifyListeners();
@@ -296,15 +394,34 @@ class AppState extends ChangeNotifier {
 
   // ── Menu ──────────────────────────────────────────────────────────────────
 
-  void addMenuItem({
+  Future<void> addMenuItem({
     required String restaurantId,
     required String name,
     required String price,
     required String description,
     Uint8List? imageBytes,
-  }) {
+  }) async {
+    String id = 'm_${DateTime.now().millisecondsSinceEpoch}';
+
+    try {
+      final response = await http.post(
+        Uri.parse('$_apiBaseUrl/menu-items'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'restaurantId': restaurantId,
+          'name': name.trim(),
+          'price': price.trim(),
+          'description': description.trim(),
+        }),
+      );
+      if (response.statusCode == 201) {
+        final body = jsonDecode(response.body);
+        id = body['id']?.toString() ?? id;
+      }
+    } catch (_) {}
+
     _menuItems.add(MenuItem(
-      id: 'm_${DateTime.now().millisecondsSinceEpoch}',
+      id: id,
       restaurantId: restaurantId,
       name: name.trim(),
       price: price.trim(),
@@ -345,14 +462,6 @@ class AppState extends ChangeNotifier {
 
   // ── Reviews ───────────────────────────────────────────────────────────────
 
-  static String get _sentimentApiUrl => getSentimentApiUrl();
-
-  String _fallbackSentiment() {
-    // We want to use the trained ML model for sentiment, not hardcoded keywords.
-    // If the model server is unreachable, return a neutral placeholder.
-    return 'NEUTRAL';
-  }
-
   Future<String> _predictSentimentWithModel(String text) async {
     final uri = Uri.parse(_sentimentApiUrl);
     final response = await http.post(
@@ -377,21 +486,31 @@ class AppState extends ChangeNotifier {
     required int stars,
     required String text,
   }) async {
-    String sentiment;
-    try {
-      sentiment = await _predictSentimentWithModel(text);
-    } catch (_) {
-      sentiment = _fallbackSentiment();
+    final response = await http.post(
+      Uri.parse('$_apiBaseUrl/reviews'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'restaurantId': restaurantId,
+        'userId': _currentUser?.id,
+        'customerName': _currentUser?.name ?? 'Guest',
+        'stars': stars,
+        'text': text.trim(),
+      }),
+    );
+
+    if (response.statusCode != 201) {
+      throw Exception(_responseError(response));
     }
 
-    _reviews.add(Review(
-      id: 'rv_${DateTime.now().millisecondsSinceEpoch}',
-      restaurantId: restaurantId,
-      customerName: _currentUser?.name ?? 'Guest',
-      stars: stars,
-      text: text.trim(),
-      sentiment: sentiment,
-    ));
+    final body = jsonDecode(response.body);
+    final reviewJson = Map<String, dynamic>.from(body['review']);
+    final review = _parseReview(reviewJson);
+
+    _reviews.removeWhere((r) => r.id == review.id);
+    _reviews.insert(0, review);
+
+    await loadRestaurants();
+    await loadRestaurantDetails(restaurantId);
     notifyListeners();
   }
 }

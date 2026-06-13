@@ -24,21 +24,60 @@ const _PRICE_KEYWORDS = {
 };
 
 const _CLEANLINESS_KEYWORDS = {
-  // Strong/explicit cleanliness & hygiene triggers only.
+// Cleanliness / place / environment keywords
   'bersih',
   'kotor',
+  'dirty',
+  'clean',
+  'unclean',
+  'filthy',
+  'messy',
+  'smelly',
+  'stinky',
+  'hygiene',
+  'hygienic',
+
+  // Place / restaurant environment
+  'tempat',
+  'place',
+  'restaurant',
+  'restoran',
+  'kedai',
+  'cafe',
+  'area',
+  'environment',
+  'surrounding',
+  'surroundings',
+  'ambience',
+  'ambiance',
+  'premis',
+  'persekitaran',
+  'suasana',
+
+  // Restaurant objects / hygiene areas
   'tandas',
   'toilet',
+  'washroom',
+  'bathroom',
   'busuk',
   'berbau',
   'sampah',
   'meja',
+  'table',
   'lantai',
+  'floor',
   'pinggan',
+  'plate',
   'cawan',
+  'cup',
+  'gelas',
+  'glass',
   'lipas',
+  'cockroach',
   'tikus',
+  'rat',
   'lalat',
+  'fly',
 };
 
 

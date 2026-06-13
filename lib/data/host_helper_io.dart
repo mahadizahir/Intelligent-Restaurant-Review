@@ -1,8 +1,13 @@
 import 'dart:io';
 
-String getSentimentApiUrl() {
+String getApiBaseUrl() {
   if (Platform.isAndroid) {
-    return 'http://10.0.2.2:5000/predict';
+    // Android emulator uses 10.0.2.2 to reach your Windows localhost.
+    return 'http://10.0.2.2:5000';
   }
-  return 'http://127.0.0.1:5000/predict';
+
+  // Windows desktop / Chrome / iOS simulator on same PC.
+  return 'http://127.0.0.1:5000';
 }
+
+String getSentimentApiUrl() => '${getApiBaseUrl()}/predict';

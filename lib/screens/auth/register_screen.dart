@@ -35,9 +35,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
     super.dispose();
   }
 
-  void _onRegister() {
+  Future<void> _onRegister() async {
     final state = context.read<AppState>();
-    final error = state.register(
+    final error = await state.register(
       name: _nameController.text,
       email: _emailController.text,
       password: _passwordController.text,
@@ -45,12 +45,16 @@ class _RegisterScreenState extends State<RegisterScreen> {
       address: _addressController.text,
       phone: _phoneController.text,
     );
+
+    if (!mounted) return;
+
     if (error != null) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(error), backgroundColor: Colors.red),
       );
       return;
     }
+
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
