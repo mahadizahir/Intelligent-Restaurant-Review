@@ -34,13 +34,18 @@ def make_id(prefix: str) -> str:
 
 def normalize_sentiment(value):
     if value is None:
-        return "neutral"
-    text = str(value).strip().lower()
-    if "positive" in text:
-        return "positive"
-    if "negative" in text:
         return "negative"
-    return "neutral"
+
+    text = str(value).strip().lower()
+
+    if "positive" in text or text in ["pos", "1", "good"]:
+        return "positive"
+
+    if "negative" in text or text in ["neg", "0", "bad"]:
+        return "negative"
+
+    # No neutral allowed in this project
+    return "negative"
 
 
 @app.after_request
